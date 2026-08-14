@@ -1,0 +1,5 @@
+{
+  "scanner": "ZAP",
+  "finding": "SQL Injection",
+  "url": "http://localhost/test?id=1"
+}
