@@ -1,1 +1,3 @@
 scans = {}
+
+normalized_findings = {}
