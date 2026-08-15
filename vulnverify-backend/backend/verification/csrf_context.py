@@ -1,6 +1,12 @@
 from backend.models.normalized_finding import NormalizedFinding
 from backend.models.replay_result import ReplayResult
 from backend.verification.csrf import CsrfVerificationContext
+from backend.verification.csrf_defense import (
+    CsrfDefenseObservation,
+)
+from backend.verification.csrf_origin import (
+    CsrfOriginObservation,
+)
 from backend.verification.csrf_state import (
     CsrfStateObservation,
     derive_state_change_observed,
@@ -13,14 +19,14 @@ def build_csrf_verification_context(
     replay_result: ReplayResult,
     state_observation: CsrfStateObservation,
     *,
+    defense_observation: CsrfDefenseObservation | None = None,
+    origin_observation: CsrfOriginObservation | None = None,
     state_changing_endpoint: bool | None = None,
     forged_request_is_plausible_under_threat_model: bool | None = None,
     effective_csrf_defense_absent_or_bypassable: bool | None = None,
     request_accepted: bool | None = None,
     reproducible: bool | None = None,
     evidence_saved: bool | None = None,
-    required_csrf_token_or_custom_header_is_enforced: bool = False,
-    cross_site_origin_or_referer_is_reliably_rejected: bool = False,
     browser_context_demonstrates_authentication_not_sent: bool = False,
     scanner_related_signal_only: bool = False,
     browser_context_required_but_unavailable: bool = False,
@@ -30,11 +36,11 @@ def build_csrf_verification_context(
     verification_confidence: float = 0.0,
 ) -> CsrfVerificationContext:
     """
-    Convert concrete replay/state observations into the input expected
-    by the deterministic CSRF classifier.
+    Convert replay, state, and defense observations into the input
+    expected by the deterministic CSRF classifier.
 
-    Security facts that cannot safely be inferred are still provided
-    explicitly by the replay profile.
+    Security facts that cannot safely be inferred remain explicit
+    inputs from the active replay profile.
     """
 
     if finding.vulnerability.category != "CSRF":
@@ -74,6 +80,18 @@ def build_csrf_verification_context(
         and bool(state_observation.errors)
     )
 
+    token_or_header_enforced = (
+        defense_observation.defense_enforced
+        if defense_observation is not None
+        else False
+    )
+
+    origin_or_referer_rejected = (
+        origin_observation.origin_or_referer_enforced
+        if origin_observation is not None
+        else False
+    )
+
     return CsrfVerificationContext(
         state_changing_endpoint=state_changing_endpoint,
         authenticated_or_privileged_context_required=(
@@ -95,10 +113,10 @@ def build_csrf_verification_context(
         reproducible=reproducible,
         evidence_saved=evidence_saved,
         required_csrf_token_or_custom_header_is_enforced=(
-            required_csrf_token_or_custom_header_is_enforced
+            token_or_header_enforced
         ),
         cross_site_origin_or_referer_is_reliably_rejected=(
-            cross_site_origin_or_referer_is_reliably_rejected
+            origin_or_referer_rejected
         ),
         browser_context_demonstrates_authentication_not_sent=(
             browser_context_demonstrates_authentication_not_sent
@@ -151,9 +169,7 @@ def _session_unavailable(
 
     status = replay_result.replay.response.status
 
-    return status in {
-        401,
-    }
+    return status == 401
 
 
 def _target_unavailable(

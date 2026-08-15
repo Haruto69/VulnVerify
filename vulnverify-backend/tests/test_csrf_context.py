@@ -5,6 +5,12 @@ from backend.models.replay_result import ReplayResult
 from backend.verification.csrf_context import (
     build_csrf_verification_context,
 )
+from backend.verification.csrf_defense import (
+    CsrfDefenseObservation,
+)
+from backend.verification.csrf_origin import (
+    CsrfOriginObservation,
+)
 from backend.verification.csrf_state import (
     CsrfStateObservation,
 )
@@ -141,6 +147,61 @@ def test_context_uses_deterministic_indicator():
     )
 
 
+def test_context_uses_token_defense_observation():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(status=403),
+        state_observation=CsrfStateObservation(),
+        defense_observation=CsrfDefenseObservation(
+            rejection_attributable_to_csrf_defense=True,
+            defense_enforced=True,
+        ),
+        verification_confidence=0.90,
+    )
+
+    assert (
+        context.required_csrf_token_or_custom_header_is_enforced
+        is True
+    )
+
+
+def test_context_uses_origin_policy_observation():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(status=403),
+        state_observation=CsrfStateObservation(),
+        origin_observation=CsrfOriginObservation(
+            rejection_attributable_to_origin_policy=True,
+            origin_or_referer_enforced=True,
+        ),
+        verification_confidence=0.90,
+    )
+
+    assert (
+        context.cross_site_origin_or_referer_is_reliably_rejected
+        is True
+    )
+
+
+def test_missing_defense_observations_default_to_false():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(),
+        state_observation=CsrfStateObservation(),
+        verification_confidence=0.40,
+    )
+
+    assert (
+        context.required_csrf_token_or_custom_header_is_enforced
+        is False
+    )
+
+    assert (
+        context.cross_site_origin_or_referer_is_reliably_rejected
+        is False
+    )
+
+
 def test_401_with_required_session_is_inconclusive_signal():
     context = build_csrf_verification_context(
         finding=make_finding(),
@@ -192,7 +253,7 @@ def test_500_is_ambiguous_server_error():
     )
 
 
-def test_403_does_not_automatically_mean_csrf_defense():
+def test_403_without_observation_does_not_prove_defense():
     context = build_csrf_verification_context(
         finding=make_finding(),
         replay_result=make_replay(
