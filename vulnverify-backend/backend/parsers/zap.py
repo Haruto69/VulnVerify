@@ -52,6 +52,7 @@ class ZapParser(BaseParser):
             )
 
         alert_instances = self._extract_alert_instances(report)
+        scan_timestamp = self._extract_scan_timestamp(report)
 
         findings = []
 
@@ -64,6 +65,7 @@ class ZapParser(BaseParser):
                     alert=alert,
                     instance=instance,
                     scan_id=scan_id,
+                    scan_timestamp=scan_timestamp,
                 )
             )
 
@@ -106,11 +108,22 @@ class ZapParser(BaseParser):
 
         return str(alert.get("pluginid", "")) in self.SQLI_PLUGIN_IDS
 
+    def _extract_scan_timestamp(
+        self,
+        report: dict
+    ) -> str | None:
+
+        return (
+            report.get("created")
+            or report.get("@generated")
+        )
+
     def _build_normalized_finding(
         self,
         alert: dict,
         instance: dict,
-        scan_id: str
+        scan_id: str,
+        scan_timestamp: str | None,
     ) -> NormalizedFinding:
 
         url = instance.get("uri", "")
@@ -183,9 +196,6 @@ class ZapParser(BaseParser):
 
             vulnerability=VulnerabilityInfo(
                 category="SQLI",
-
-                # SQLi subtype semantics have not been
-                # frozen by Cyber yet.
                 subtype=None,
 
                 raw_severity=(
@@ -196,13 +206,10 @@ class ZapParser(BaseParser):
 
                 normalized_severity=normalized_severity,
 
-                # Preserve ZAP's raw confidence exactly.
                 raw_confidence=str(
                     alert.get("confidence", "")
                 ) or None,
 
-                # Exact numeric ZAP confidence mapping
-                # is not frozen yet.
                 normalized_confidence="UNKNOWN",
 
                 cwe=cwe,
@@ -259,6 +266,7 @@ class ZapParser(BaseParser):
             references=references,
 
             metadata={
+                "scan_timestamp": scan_timestamp,
                 "zap_alert_ref": alert.get("alertRef"),
                 "zap_instance_id": instance.get("id"),
                 "zap_source_id": alert.get("sourceid"),

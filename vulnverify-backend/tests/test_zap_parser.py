@@ -104,6 +104,7 @@ def test_normalizes_real_zap_sqli_finding():
 
     assert finding.source.scanner == "ZAP"
     assert finding.source.scanner_finding_id == "40018"
+
     assert (
         finding.source.original_name
         == "SQL Injection - MySQL"
@@ -111,20 +112,30 @@ def test_normalizes_real_zap_sqli_finding():
 
     assert finding.vulnerability.category == "SQLI"
     assert finding.vulnerability.subtype is None
-    assert finding.vulnerability.normalized_severity == "HIGH"
+
+    assert (
+        finding.vulnerability.normalized_severity
+        == "HIGH"
+    )
+
     assert finding.vulnerability.raw_confidence == "2"
+
     assert (
         finding.vulnerability.normalized_confidence
         == "UNKNOWN"
     )
+
     assert finding.vulnerability.cwe == "CWE-89"
 
     assert finding.target.host == "127.0.0.1"
+
     assert (
         finding.target.path
         == "/DVWA/vulnerabilities/sqli/"
     )
+
     assert finding.target.parameter == "id"
+
     assert (
         finding.target.parameter_location
         == "QUERY"
@@ -139,7 +150,10 @@ def test_normalizes_real_zap_sqli_finding():
 
     assert finding.request.method == "GET"
 
-    assert finding.request.query_parameters["id"] == ["'"]
+    assert (
+        finding.request.query_parameters["id"]
+        == ["'"]
+    )
 
     assert (
         finding.request.cookies["security"]
@@ -155,6 +169,8 @@ def test_normalizes_real_zap_sqli_finding():
         "You have an error in your SQL syntax"
         in finding.response.body
     )
+
+    assert finding.metadata["scan_timestamp"] is not None
 
 
 def test_generic_report_does_not_create_false_sqli_findings():
