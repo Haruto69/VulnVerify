@@ -5,6 +5,9 @@ from backend.models.replay_result import ReplayResult
 from backend.services.csrf_verification_service import (
     finalize_csrf_verification,
 )
+from backend.verification.csrf_confidence import (
+    calculate_csrf_confidence,
+)
 from backend.verification.csrf_defense import (
     CsrfDefenseObservation,
 )
@@ -286,3 +289,41 @@ def test_csrf_008_required_custom_header():
         result.classification.status
         == "FALSE_POSITIVE"
     )
+
+
+def test_ground_truth_tp_state_change_confidence():
+    confidence = calculate_csrf_confidence(
+        independent_state_change_verified=True,
+    )
+
+    assert confidence == 0.99
+
+
+def test_ground_truth_protection_confidence():
+    confidence = calculate_csrf_confidence(
+        protection_enforcement_verified=True,
+    )
+
+    assert confidence == 0.97
+
+
+def test_ground_truth_indicator_only_confidence():
+    confidence = calculate_csrf_confidence(
+        deterministic_indicator_matched=True,
+    )
+
+    assert confidence == 0.85
+
+
+def test_ground_truth_ambiguous_evidence_confidence():
+    confidence = calculate_csrf_confidence(
+        partial_evidence_available=True,
+    )
+
+    assert confidence == 0.40
+
+
+def test_ground_truth_insufficient_evidence_confidence():
+    confidence = calculate_csrf_confidence()
+
+    assert confidence == 0.25

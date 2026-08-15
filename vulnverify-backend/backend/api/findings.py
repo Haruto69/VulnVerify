@@ -21,6 +21,9 @@ from backend.services.scan_service import (
     get_normalized_findings,
     get_scan,
 )
+from backend.verification.csrf_confidence import (
+    calculate_csrf_confidence,
+)
 from backend.verification.csrf_defense import (
     evaluate_csrf_defense,
 )
@@ -267,6 +270,9 @@ async def verify_finding(
                 state_observation=(
                     state_observation
                 ),
+                baseline_replay=(
+                    baseline_replay
+                ),
             )
         ),
     )
@@ -452,31 +458,48 @@ def _verification_confidence(
     defense_observation,
     origin_observation,
     state_observation,
+    baseline_replay,
 ) -> float:
     """
-    Conservative v1 confidence bands.
+    Apply the deterministic CSRF confidence policy.
 
-    High confidence is reserved for controlled protection
-    enforcement. Response-only acceptance evidence remains medium
-    because independent state confirmation is unavailable.
+    The strongest available evidence determines confidence.
     """
 
-    if (
-        defense_observation is not None
-        and defense_observation.defense_enforced
-    ):
-        return 0.95
+    protection_enforced = (
+        (
+            defense_observation is not None
+            and defense_observation.defense_enforced
+        )
+        or (
+            origin_observation is not None
+            and origin_observation.origin_or_referer_enforced
+        )
+    )
 
-    if (
-        origin_observation is not None
-        and origin_observation.origin_or_referer_enforced
-    ):
-        return 0.95
-
-    if (
+    indicator_matched = (
         state_observation
         .deterministic_acceptance_indicator_matched
-    ):
-        return 0.70
+    )
 
-    return 0.30
+    partial_evidence = (
+        baseline_replay.replay.executed
+        and baseline_replay.replay.response.status
+        is not None
+    )
+
+    return calculate_csrf_confidence(
+        independent_state_change_verified=(
+            state_observation.state_changed
+            is True
+        ),
+        protection_enforcement_verified=(
+            protection_enforced
+        ),
+        deterministic_indicator_matched=(
+            indicator_matched
+        ),
+        partial_evidence_available=(
+            partial_evidence
+        ),
+    )

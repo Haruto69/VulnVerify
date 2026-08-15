@@ -244,7 +244,7 @@ def test_verify_endpoint_returns_inconclusive_for_indicator_only(
 
     assert (
         data["classification"]["confidence"]
-        == 0.70
+        == 0.85
     )
 
     assert (
@@ -333,7 +333,7 @@ def test_verify_endpoint_detects_enforced_csrf_token(
 
     assert (
         data["classification"]["confidence"]
-        == 0.95
+        == 0.97
     )
 
 
