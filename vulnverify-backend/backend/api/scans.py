@@ -9,12 +9,16 @@ from fastapi import (
 )
 
 from backend.parsers import get_parser
-from backend.services.normalization_service import normalize_scan
+from backend.services.normalization_service import (
+    normalize_scan,
+)
 from backend.services.scan_service import (
     create_scan,
     get_all_scans,
     get_normalized_findings,
     get_scan,
+    get_verified_finding,
+    get_verified_findings,
     save_normalized_findings,
     update_scan_status,
 )
@@ -165,3 +169,55 @@ async def list_normalized_findings(
         "count": len(findings),
         "findings": findings,
     }
+
+
+@router.get("/{scan_id}/verified-findings")
+async def list_verified_findings(
+    scan_id: str,
+):
+    scan = get_scan(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    findings = get_verified_findings(
+        scan_id
+    )
+
+    return {
+        "scan_id": scan_id,
+        "count": len(findings),
+        "findings": findings,
+    }
+
+
+@router.get(
+    "/{scan_id}/verified-findings/{finding_id}"
+)
+async def read_verified_finding(
+    scan_id: str,
+    finding_id: str,
+):
+    scan = get_scan(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    finding = get_verified_finding(
+        scan_id=scan_id,
+        finding_id=finding_id,
+    )
+
+    if finding is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Verified finding not found",
+        )
+
+    return finding

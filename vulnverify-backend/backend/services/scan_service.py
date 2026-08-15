@@ -3,6 +3,7 @@ from uuid import uuid4
 from backend.storage.repository import (
     normalized_findings,
     scans,
+    verified_findings,
 )
 
 
@@ -61,4 +62,46 @@ def save_normalized_findings(
 def get_normalized_findings(
     scan_id: str,
 ):
-    return normalized_findings.get(scan_id, [])
+    return normalized_findings.get(
+        scan_id,
+        [],
+    )
+
+
+def save_verified_finding(
+    scan_id: str,
+    finding,
+):
+    if scan_id not in verified_findings:
+        verified_findings[scan_id] = {}
+
+    verified_findings[scan_id][
+        finding.finding_id
+    ] = finding
+
+
+def get_verified_findings(
+    scan_id: str,
+):
+    findings = verified_findings.get(
+        scan_id,
+        {},
+    )
+
+    return list(
+        findings.values()
+    )
+
+
+def get_verified_finding(
+    scan_id: str,
+    finding_id: str,
+):
+    findings = verified_findings.get(
+        scan_id,
+        {},
+    )
+
+    return findings.get(
+        finding_id
+    )

@@ -1,7 +1,32 @@
-from backend.models.normalized_finding import NormalizedFinding
+from backend.models.normalized_finding import (
+    NormalizedFinding,
+)
 from backend.models.replay_result import ReplayResult
+from backend.models.verified_finding import (
+    VerifiedFinding,
+)
 from backend.replay.engine import execute_replay
-from backend.replay.request_builder import build_replay_request
+from backend.replay.request_builder import (
+    build_replay_request,
+)
+from backend.services.csrf_verification_service import (
+    finalize_csrf_verification,
+)
+from backend.services.scan_service import (
+    save_verified_finding,
+)
+from backend.verification.csrf_browser import (
+    CsrfBrowserObservation,
+)
+from backend.verification.csrf_defense import (
+    CsrfDefenseObservation,
+)
+from backend.verification.csrf_origin import (
+    CsrfOriginObservation,
+)
+from backend.verification.csrf_state import (
+    CsrfStateObservation,
+)
 
 
 def replay_finding(
@@ -24,3 +49,93 @@ def replay_finding(
         request=replay_request,
         timeout_seconds=timeout_seconds,
     )
+
+
+def verify_csrf_finding(
+    finding: NormalizedFinding,
+    replay_result: ReplayResult,
+    state_observation: CsrfStateObservation,
+    *,
+    defense_observation: (
+        CsrfDefenseObservation | None
+    ) = None,
+    origin_observation: (
+        CsrfOriginObservation | None
+    ) = None,
+    browser_observation: (
+        CsrfBrowserObservation | None
+    ) = None,
+    state_changing_endpoint: bool | None = None,
+    forged_request_is_plausible_under_threat_model: (
+        bool | None
+    ) = None,
+    effective_csrf_defense_absent_or_bypassable: (
+        bool | None
+    ) = None,
+    request_accepted: bool | None = None,
+    reproducible: bool | None = None,
+    evidence_saved: bool | None = None,
+    scanner_related_signal_only: bool = False,
+    browser_context_required: bool = False,
+    insufficient_request_context: bool = False,
+    insufficient_scanner_data: bool = False,
+    nondeterministic_result: bool = False,
+    verification_confidence: float = 0.0,
+) -> VerifiedFinding:
+    """
+    Finalize and persist CSRF verification for one normalized
+    finding.
+
+    The replay/evidence collection layer remains responsible for
+    supplying security observations. This function does not invent
+    missing facts.
+    """
+
+    if finding.vulnerability.category != "CSRF":
+        raise ValueError(
+            "CSRF pipeline received a non-CSRF finding"
+        )
+
+    verified = finalize_csrf_verification(
+        finding=finding,
+        replay_result=replay_result,
+        state_observation=state_observation,
+        defense_observation=defense_observation,
+        origin_observation=origin_observation,
+        browser_observation=browser_observation,
+        state_changing_endpoint=state_changing_endpoint,
+        forged_request_is_plausible_under_threat_model=(
+            forged_request_is_plausible_under_threat_model
+        ),
+        effective_csrf_defense_absent_or_bypassable=(
+            effective_csrf_defense_absent_or_bypassable
+        ),
+        request_accepted=request_accepted,
+        reproducible=reproducible,
+        evidence_saved=evidence_saved,
+        scanner_related_signal_only=(
+            scanner_related_signal_only
+        ),
+        browser_context_required=(
+            browser_context_required
+        ),
+        insufficient_request_context=(
+            insufficient_request_context
+        ),
+        insufficient_scanner_data=(
+            insufficient_scanner_data
+        ),
+        nondeterministic_result=(
+            nondeterministic_result
+        ),
+        verification_confidence=(
+            verification_confidence
+        ),
+    )
+
+    save_verified_finding(
+        scan_id=finding.scan_id,
+        finding=verified,
+    )
+
+    return verified
