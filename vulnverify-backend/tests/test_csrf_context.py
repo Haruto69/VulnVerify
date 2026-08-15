@@ -2,6 +2,9 @@ from datetime import datetime, timezone
 
 from backend.models.normalized_finding import NormalizedFinding
 from backend.models.replay_result import ReplayResult
+from backend.verification.csrf_browser import (
+    CsrfBrowserObservation,
+)
 from backend.verification.csrf_context import (
     build_csrf_verification_context,
 )
@@ -285,4 +288,70 @@ def test_unknown_state_without_error_is_not_forced_unobservable():
     assert (
         context.state_change_not_observable
         is False
+    )
+
+
+def test_context_uses_browser_evidence_when_auth_not_sent():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(),
+        state_observation=CsrfStateObservation(),
+        browser_observation=CsrfBrowserObservation(
+            browser_check_executed=True,
+            authentication_sent=True,
+            session_cookie_sent=False,
+            cross_site_request_attempted=True,
+            request_reached_target=True,
+        ),
+        browser_context_required=True,
+        verification_confidence=0.90,
+    )
+
+    assert (
+        context.browser_context_demonstrates_authentication_not_sent
+        is True
+    )
+
+    assert (
+        context.browser_context_required_but_unavailable
+        is False
+    )
+
+
+def test_required_browser_context_missing_is_inconclusive_signal():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(),
+        state_observation=CsrfStateObservation(),
+        browser_observation=None,
+        browser_context_required=True,
+        verification_confidence=0.30,
+    )
+
+    assert (
+        context.browser_context_required_but_unavailable
+        is True
+    )
+
+
+def test_failed_required_browser_check_is_unavailable():
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(),
+        state_observation=CsrfStateObservation(),
+        browser_observation=CsrfBrowserObservation(
+            browser_check_executed=True,
+            cross_site_request_attempted=True,
+            request_reached_target=None,
+            errors=[
+                "browser launch failed"
+            ],
+        ),
+        browser_context_required=True,
+        verification_confidence=0.20,
+    )
+
+    assert (
+        context.browser_context_required_but_unavailable
+        is True
     )

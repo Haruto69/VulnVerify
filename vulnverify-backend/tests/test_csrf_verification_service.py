@@ -5,6 +5,9 @@ from backend.models.replay_result import ReplayResult
 from backend.services.csrf_verification_service import (
     finalize_csrf_verification,
 )
+from backend.verification.csrf_browser import (
+    CsrfBrowserObservation,
+)
 from backend.verification.csrf_defense import (
     CsrfDefenseObservation,
 )
@@ -204,4 +207,48 @@ def test_http_200_still_does_not_create_true_positive():
         result.classification.status
         == "INCONCLUSIVE"
     )
-    
+
+
+def test_service_returns_false_positive_when_browser_drops_session():
+    result = finalize_csrf_verification(
+        finding=make_finding(),
+        replay_result=make_replay(status=200),
+        state_observation=CsrfStateObservation(),
+        browser_observation=CsrfBrowserObservation(
+            browser_check_executed=True,
+            authentication_sent=True,
+            session_cookie_sent=False,
+            cross_site_request_attempted=True,
+            request_reached_target=True,
+        ),
+        browser_context_required=True,
+        verification_confidence=0.90,
+    )
+
+    assert (
+        result.classification.status
+        == "FALSE_POSITIVE"
+    )
+
+
+def test_service_returns_inconclusive_when_required_browser_check_fails():
+    result = finalize_csrf_verification(
+        finding=make_finding(),
+        replay_result=make_replay(status=200),
+        state_observation=CsrfStateObservation(),
+        browser_observation=CsrfBrowserObservation(
+            browser_check_executed=True,
+            cross_site_request_attempted=True,
+            request_reached_target=None,
+            errors=[
+                "browser launch failed"
+            ],
+        ),
+        browser_context_required=True,
+        verification_confidence=0.20,
+    )
+
+    assert (
+        result.classification.status
+        == "INCONCLUSIVE"
+    )

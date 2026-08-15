@@ -1,6 +1,11 @@
 from backend.models.normalized_finding import NormalizedFinding
 from backend.models.replay_result import ReplayResult
 from backend.verification.csrf import CsrfVerificationContext
+from backend.verification.csrf_browser import (
+    CsrfBrowserObservation,
+    browser_context_blocks_authenticated_csrf,
+    browser_context_unavailable,
+)
 from backend.verification.csrf_defense import (
     CsrfDefenseObservation,
 )
@@ -21,26 +26,25 @@ def build_csrf_verification_context(
     *,
     defense_observation: CsrfDefenseObservation | None = None,
     origin_observation: CsrfOriginObservation | None = None,
+    browser_observation: CsrfBrowserObservation | None = None,
     state_changing_endpoint: bool | None = None,
     forged_request_is_plausible_under_threat_model: bool | None = None,
     effective_csrf_defense_absent_or_bypassable: bool | None = None,
     request_accepted: bool | None = None,
     reproducible: bool | None = None,
     evidence_saved: bool | None = None,
-    browser_context_demonstrates_authentication_not_sent: bool = False,
     scanner_related_signal_only: bool = False,
-    browser_context_required_but_unavailable: bool = False,
+    browser_context_required: bool = False,
     insufficient_request_context: bool = False,
     insufficient_scanner_data: bool = False,
     nondeterministic_result: bool = False,
     verification_confidence: float = 0.0,
 ) -> CsrfVerificationContext:
     """
-    Convert replay, state, and defense observations into the input
-    expected by the deterministic CSRF classifier.
+    Convert collected CSRF replay evidence into the deterministic
+    classifier context.
 
-    Security facts that cannot safely be inferred remain explicit
-    inputs from the active replay profile.
+    Facts that cannot safely be inferred remain explicit inputs.
     """
 
     if finding.vulnerability.category != "CSRF":
@@ -92,6 +96,30 @@ def build_csrf_verification_context(
         else False
     )
 
+    browser_blocks_auth = (
+        browser_context_blocks_authenticated_csrf(
+            browser_observation
+        )
+        if browser_observation is not None
+        else False
+    )
+
+    browser_unavailable = (
+        browser_context_unavailable(
+            browser_observation
+        )
+        if browser_observation is not None
+        else False
+    )
+
+    browser_required_but_unavailable = (
+        browser_context_required
+        and (
+            browser_observation is None
+            or browser_unavailable
+        )
+    )
+
     return CsrfVerificationContext(
         state_changing_endpoint=state_changing_endpoint,
         authenticated_or_privileged_context_required=(
@@ -119,7 +147,7 @@ def build_csrf_verification_context(
             origin_or_referer_rejected
         ),
         browser_context_demonstrates_authentication_not_sent=(
-            browser_context_demonstrates_authentication_not_sent
+            browser_blocks_auth
         ),
         scanner_related_signal_only=scanner_related_signal_only,
         authentication_or_session_unavailable=(
@@ -135,7 +163,7 @@ def build_csrf_verification_context(
             state_change_not_observable
         ),
         browser_context_required_but_unavailable=(
-            browser_context_required_but_unavailable
+            browser_required_but_unavailable
         ),
         ambiguous_server_error=(
             ambiguous_server_error
@@ -154,11 +182,6 @@ def _session_unavailable(
     finding: NormalizedFinding,
     replay_result: ReplayResult,
 ) -> bool:
-    """
-    Only infer session failure when authentication/session is known
-    to be required and replay clearly indicates authentication failure.
-    """
-
     auth_required = (
         finding.context.authentication_required == "YES"
         or finding.context.session_required == "YES"
@@ -175,10 +198,6 @@ def _session_unavailable(
 def _target_unavailable(
     replay_result: ReplayResult,
 ) -> bool:
-    """
-    Transport failure means the target could not be reliably tested.
-    """
-
     return (
         replay_result.replay.response.status is None
         and bool(replay_result.errors)
@@ -188,11 +207,6 @@ def _target_unavailable(
 def _ambiguous_server_error(
     replay_result: ReplayResult,
 ) -> bool:
-    """
-    A generic 5xx response does not prove CSRF protection.
-    It is therefore treated as ambiguous.
-    """
-
     status = replay_result.replay.response.status
 
     if status is None:
