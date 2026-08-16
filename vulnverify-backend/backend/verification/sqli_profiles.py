@@ -28,6 +28,20 @@ class SqliReplayProfile:
     timing_mad_multiplier: float | None = None
     verification_median_ratio: float | None = None
 
+    # Maximum baseline_MAD / baseline_median ratio for a baseline to
+    # be considered stable. Confirmed by
+    # SQLi_Time_Based_Verification_Clarifications_v1.xlsx
+    # (Time_Based_Config: baseline_mad_ratio_max).
+    baseline_mad_ratio_max: float | None = None
+
+    # Minimum individual_trial_ratio (trial_response_time_ms /
+    # baseline_median) for a single verification trial to count as
+    # delayed. Distinct from verification_median_ratio, which is the
+    # aggregate timing_ratio check used in the final decision.
+    # Confirmed by the same spreadsheet (Time_Based_Config:
+    # trial_ratio_min).
+    trial_ratio_min: float | None = None
+
 
 SQLI_REPLAY_PROFILES: dict[SqliSubtype, SqliReplayProfile] = {
     SqliSubtype.ERROR_BASED: SqliReplayProfile(
@@ -60,6 +74,8 @@ SQLI_REPLAY_PROFILES: dict[SqliSubtype, SqliReplayProfile] = {
         timing_delta_floor_ms=2000.0,
         timing_mad_multiplier=5.0,
         verification_median_ratio=2.0,
+        baseline_mad_ratio_max=0.2,
+        trial_ratio_min=2.0,
     ),
     SqliSubtype.UNION_BASED: SqliReplayProfile(
         subtype=SqliSubtype.UNION_BASED,
