@@ -62,11 +62,57 @@ class CsrfVerificationConfig(BaseModel):
         return self
 
 
+class SqliTimeBasedVerificationConfig(BaseModel):
+    """
+    Configuration required to construct the clean baseline request
+    for TIME_BASED SQLi verification.
+
+    The scanner finding contains the injected request but does not
+    reliably contain the original pre-injection parameter value, so
+    that value must be supplied explicitly.
+
+    The verification request itself continues to use the exact
+    scanner-captured request.
+    """
+
+    baseline_parameter_value: str
+
+
+class SqliVerificationConfig(BaseModel):
+    time_based: SqliTimeBasedVerificationConfig
+
+
 class VerificationTriggerRequest(BaseModel):
-    csrf: CsrfVerificationConfig
+    csrf: CsrfVerificationConfig | None = None
+    sqli: SqliVerificationConfig | None = None
 
     timeout_seconds: float = Field(
         default=10.0,
         gt=0.0,
         le=60.0,
     )
+
+    @model_validator(mode="after")
+    def validate_single_verification_family(
+        self,
+    ):
+        configured = sum(
+            config is not None
+            for config in (
+                self.csrf,
+                self.sqli,
+            )
+        )
+
+        if configured == 0:
+            raise ValueError(
+                "A verification configuration must be supplied"
+            )
+
+        if configured > 1:
+            raise ValueError(
+                "Only one vulnerability verification configuration "
+                "may be supplied at a time"
+            )
+
+        return self

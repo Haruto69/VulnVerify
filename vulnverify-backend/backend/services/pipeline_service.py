@@ -15,6 +15,9 @@ from backend.services.csrf_verification_service import (
 from backend.services.scan_service import (
     save_verified_finding,
 )
+from backend.services.sqli_verification_service import (
+    finalize_time_based_sqli_verification,
+)
 from backend.verification.csrf_browser import (
     CsrfBrowserObservation,
 )
@@ -26,6 +29,9 @@ from backend.verification.csrf_origin import (
 )
 from backend.verification.csrf_state import (
     CsrfStateObservation,
+)
+from backend.verification.sqli_timing import (
+    TimingSample,
 )
 
 
@@ -131,6 +137,48 @@ def verify_csrf_finding(
         verification_confidence=(
             verification_confidence
         ),
+    )
+
+    save_verified_finding(
+        scan_id=finding.scan_id,
+        finding=verified,
+    )
+
+    return verified
+
+
+def verify_time_based_sqli_finding(
+    *,
+    finding: NormalizedFinding,
+    baseline_samples: list[TimingSample],
+    verification_samples: list[TimingSample],
+    verification_confidence: float,
+    credible_network_or_server_explanation: bool = False,
+) -> VerifiedFinding:
+    """
+    Finalize and persist TIME_BASED SQLi verification.
+
+    Timing collection and security-environment observations remain
+    separate from this persistence/orchestration layer.
+    """
+
+    if finding.vulnerability.category != "SQLI":
+        raise ValueError(
+            "TIME_BASED SQLi pipeline received a non-SQLI finding"
+        )
+
+    verified = (
+        finalize_time_based_sqli_verification(
+            finding=finding,
+            baseline_samples=baseline_samples,
+            verification_samples=verification_samples,
+            verification_confidence=(
+                verification_confidence
+            ),
+            credible_network_or_server_explanation=(
+                credible_network_or_server_explanation
+            ),
+        )
     )
 
     save_verified_finding(

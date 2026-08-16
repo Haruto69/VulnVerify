@@ -170,7 +170,7 @@ class ZapParser(BaseParser):
         cwe_id = str(alert.get("cweid", "")).strip()
 
         if not cwe_id or cwe_id == "-1":
-            cwe = None
+            cwe = "CWE-89"
         else:
             cwe = f"CWE-{cwe_id}"
 
