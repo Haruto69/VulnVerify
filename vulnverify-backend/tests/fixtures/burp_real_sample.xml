@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<burp><issue>
+    <serialNumber>3029841365459156992</serialNumber>
+    <type>2098688</type>
+    <name>Cross-origin resource sharing</name>
+    <host ip="127.0.0.1">http://localhost:3000</host>
+    <path>/socket.io/</path>
+    <location>/socket.io/</location>
+    <severity>Information</severity>
+    <confidence>Certain</confidence>
+    <issueBackground>&lt;p&gt;An HTML5 cross-origin resource sharing (CORS) policy controls whether and how content running on other domains can perform two-way interaction with the domain that publishes the policy. The policy is fine-grained and can apply access controls per-request based on the URL and other features of the request.&lt;/p&gt;&lt;p&gt;If another domain is allowed by the policy, then that domain can potentially attack users of the application. If a user is logged in to the application, and visits a domain allowed by the policy, then any malicious content running on that domain can potentially retrieve content from the application, and sometimes carry out actions within the security context of the logged in user.&lt;/p&gt;
+&lt;p&gt;Even if an allowed domain is not overtly malicious in itself, security vulnerabilities within that domain could potentially be leveraged by an attacker to exploit the trust relationship and attack the application that allows access. CORS policies on pages containing sensitive information should be reviewed to determine whether it is appropriate for the application to trust both the intentions and security posture of any domains granted access.&lt;/p&gt;</issueBackground>
+    <remediationBackground>&lt;p&gt;Any inappropriate domains should be removed from the CORS policy.&lt;/p&gt;</remediationBackground>
+    <references>&lt;ul&gt;&lt;li&gt;&lt;a href="https://portswigger.net/web-security/cors"&gt;Web Security Academy: Cross-origin resource sharing (CORS)&lt;/a&gt;&lt;/li&gt;&lt;li&gt;&lt;a href="https://portswigger.net/research/exploiting-cors-misconfigurations-for-bitcoins-and-bounties"&gt;Exploiting CORS Misconfigurations&lt;/a&gt;&lt;/li&gt;&lt;/ul&gt;</references>
+    <vulnerabilityClassifications>&lt;ul&gt;&lt;li&gt;&lt;a href="https://cwe.mitre.org/data/definitions/942.html"&gt;CWE-942: Overly Permissive Cross-domain Whitelist&lt;/a&gt;&lt;/li&gt;&lt;/ul&gt;</vulnerabilityClassifications>
+    <issueDetail>The application implements an HTML5 cross-origin resource sharing (CORS) policy for this request.&lt;br&gt;&lt;br&gt;If the application relies on network firewalls or other IP-based access controls, this policy is likely to present a security risk.</issueDetail>
+    <requestresponse>
+      <request method="GET" base64="true">R0VUIC9zb2NrZXQuaW8vP0VJTz00JnRyYW5zcG9ydD1wb2xsaW5nJnQ9UTA4cHM2aCBIVFRQLzEuMQ0KSG9zdDogbG9jYWxob3N0OjMwMDANCkNhY2hlLUNvbnRyb2w6IG1heC1hZ2U9MA0KU2VjLUNILVVBOiAiQ2hyb21pdW0iO3Y9IjE1MCIsICJOb3Q7QT1CcmFuZCI7dj0iMjQiLCAiR29vZ2xlIENocm9tZSI7dj0iMTUwIg0KU2VjLUNILVVBLU1vYmlsZTogPzANClNlYy1DSC1VQS1QbGF0Zm9ybTogIldpbmRvd3MiDQpBY2NlcHQtTGFuZ3VhZ2U6IGVuLVVTO3E9MC45LGVuO3E9MC44DQpVc2VyLUFnZW50OiBNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTUwLjAuMC4wIFNhZmFyaS81MzcuMzYNCkFjY2VwdDogKi8qDQpTZWMtRmV0Y2gtU2l0ZTogbm9uZQ0KU2VjLUZldGNoLU1vZGU6IG5hdmlnYXRlDQpTZWMtRmV0Y2gtVXNlcjogPzENClNlYy1GZXRjaC1EZXN0OiBkb2N1bWVudA0KQWNjZXB0LUVuY29kaW5nOiBnemlwLCBkZWZsYXRlLCBicg0KQ29ubmVjdGlvbjogY2xvc2UNClJlZmVyZXI6IGh0dHA6Ly9sb2NhbGhvc3Q6MzAwMC8NCk9yaWdpbjogaHR0cDovL2xvY2FsaG9zdDo0MjAwDQoNCg==</request>
+      <response base64="true">SFRUUC8xLjEgMjAwIE9LDQpBY2Nlc3MtQ29udHJvbC1BbGxvdy1PcmlnaW46IGh0dHA6Ly9sb2NhbGhvc3Q6NDIwMA0KVmFyeTogT3JpZ2luDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9VVRGLTgNCkNvbnRlbnQtTGVuZ3RoOiA5Ng0KRGF0ZTogU3VuLCAxNiBBdWcgMjAyNiAwNDoyMzoyMyBHTVQNCkNvbm5lY3Rpb246IGNsb3NlDQoNCjB7InNpZCI6ImtLQjYzMmd6VTRJV09XdV9BQVd1IiwidXBncmFkZXMiOlsid2Vic29ja2V0Il0sInBpbmdJbnRlcnZhbCI6MjUwMDAsInBpbmdUaW1lb3V0Ijo1MDAwfQ==</response>
+      <responseRedirected>false</responseRedirected>
+    </requestresponse>
+  </issue>
+  </burp>
