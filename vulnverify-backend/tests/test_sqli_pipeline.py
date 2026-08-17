@@ -12,6 +12,12 @@ from backend.models.normalized_finding import (
     VulnerabilityCategory,
     VulnerabilityInfo,
 )
+from backend.models.replay_result import (
+    ReplayExecution,
+    ReplayRequest,
+    ReplayResponse,
+    ReplayResult,
+)
 from backend.models.verified_finding import VerificationStatus
 from backend.services.pipeline_service import (
     verify_time_based_sqli_finding,
@@ -76,11 +82,35 @@ def sample(
     )
 
 
+def make_replay_result(finding_id: str) -> ReplayResult:
+    return ReplayResult(
+        finding_id=finding_id,
+        replay=ReplayExecution(
+            executed=True,
+            timestamp=datetime.now(timezone.utc),
+            request=ReplayRequest(
+                method="GET",
+                url="http://test.local/item?id=1",
+                headers={},
+                body=None,
+            ),
+            response=ReplayResponse(
+                status=200,
+                headers={},
+                body="<html></html>",
+            ),
+        ),
+        observations=[],
+        errors=[],
+    )
+
+
 def test_time_based_pipeline_verifies_and_persists_result():
     finding = make_finding()
 
     result = verify_time_based_sqli_finding(
         finding=finding,
+        replay_result=make_replay_result(finding.finding_id),
         baseline_samples=[
             sample(1, 100.0),
             sample(2, 105.0),
@@ -120,6 +150,7 @@ def test_time_based_reverification_replaces_previous_result():
 
     verify_time_based_sqli_finding(
         finding=finding,
+        replay_result=make_replay_result(finding.finding_id),
         baseline_samples=[
             sample(1, 100.0),
             sample(2, 105.0),
@@ -137,6 +168,7 @@ def test_time_based_reverification_replaces_previous_result():
 
     second = verify_time_based_sqli_finding(
         finding=finding,
+        replay_result=make_replay_result(finding.finding_id),
         baseline_samples=[
             sample(1, 100.0),
             sample(2, 105.0),
