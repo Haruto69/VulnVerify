@@ -13,9 +13,13 @@ from backend.replay.csrf import (
 from backend.replay.request_builder import (
     build_replay_request,
 )
+from backend.replay.sqli_time_based_collector import (
+    collect_time_based_replay_evidence,
+)
 from backend.services.pipeline_service import (
     replay_finding,
     verify_csrf_finding,
+    verify_time_based_sqli_finding,
 )
 from backend.services.scan_service import (
     get_normalized_findings,
@@ -50,8 +54,9 @@ async def verify_finding(
     trigger: VerificationTriggerRequest,
 ):
     """
-    Run configured CSRF verification checks for one normalized
-    finding.
+    Run configured CSRF or SQLi TIME_BASED verification checks for
+    one normalized finding, dispatching on which trigger family
+    (trigger.csrf or trigger.sqli) was supplied.
 
     The endpoint only derives conclusions that are supported by
     deterministic replay evidence. Missing application-specific
@@ -77,6 +82,22 @@ async def verify_finding(
             detail="Finding not found",
         )
 
+    if trigger.sqli is not None:
+        return _verify_time_based_sqli_finding(
+            finding=finding,
+            trigger=trigger,
+        )
+
+    return _verify_csrf_finding(
+        finding=finding,
+        trigger=trigger,
+    )
+
+
+def _verify_csrf_finding(
+    finding,
+    trigger: VerificationTriggerRequest,
+):
     if finding.vulnerability.category != "CSRF":
         raise HTTPException(
             status_code=400,
@@ -278,6 +299,48 @@ async def verify_finding(
     )
 
     return verified
+
+
+def _verify_time_based_sqli_finding(
+    finding,
+    trigger: VerificationTriggerRequest,
+):
+    if finding.vulnerability.category != "SQLI":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This verification endpoint currently "
+                "supports SQLi TIME_BASED findings only."
+            ),
+        )
+
+    replay_evidence = collect_time_based_replay_evidence(
+        finding=finding,
+        baseline_parameter_value=(
+            trigger.sqli
+            .time_based
+            .baseline_parameter_value
+        ),
+        timeout_seconds=trigger.timeout_seconds,
+    )
+
+    final_verification_replay = (
+        replay_evidence
+        .verification_attempts[-1]
+        .replay_result
+    )
+
+    return verify_time_based_sqli_finding(
+        finding=finding,
+        replay_result=final_verification_replay,
+        baseline_samples=list(
+            replay_evidence.baseline_samples
+        ),
+        verification_samples=list(
+            replay_evidence.verification_samples
+        ),
+        verification_confidence=0.0,
+    )
 
 
 def _find_normalized_finding(

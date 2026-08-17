@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from backend.verification.sqli_failure import SqliFailureReason
 from backend.verification.sqli_profiles import (
     SqliReplayProfile,
     SqliSubtype,
@@ -42,7 +43,15 @@ class SqliTimeBasedContext:
 
     verification_confidence: float
 
+    # Human-readable, per-request failure trail ("verification
+    # request 4: RATE_LIMITED"), kept for evidence/display purposes.
     failure_reasons: tuple[str, ...]
+
+    # The same failures as structured SqliFailureReason members, deduplicated
+    # and order-preserved. This is what classification logic must compare
+    # against -- the formatted strings above are not equal to any
+    # SqliFailureReason member and must never be used for that purpose.
+    failure_reason_codes: tuple[SqliFailureReason, ...]
 
 
 def build_sqli_time_based_context(
@@ -80,7 +89,10 @@ def build_sqli_time_based_context(
         if evaluate_trial_validity(sample).valid
     ]
 
-    failure_reasons = _collect_failure_reasons(
+    (
+        failure_reasons,
+        failure_reason_codes,
+    ) = _collect_failure_reasons(
         baseline_samples=baseline_samples,
         verification_samples=verification_samples,
     )
@@ -206,6 +218,7 @@ def build_sqli_time_based_context(
         verification_confidence=verification_confidence,
 
         failure_reasons=failure_reasons,
+        failure_reason_codes=failure_reason_codes,
     )
 
 
@@ -213,8 +226,9 @@ def _collect_failure_reasons(
     *,
     baseline_samples: list[TimingSample],
     verification_samples: list[TimingSample],
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], tuple[SqliFailureReason, ...]]:
     reasons: list[str] = []
+    reason_codes: list[SqliFailureReason] = []
 
     for phase, samples in (
         ("baseline", baseline_samples),
@@ -232,4 +246,7 @@ def _collect_failure_reasons(
                 if text not in reasons:
                     reasons.append(text)
 
-    return tuple(reasons)
+                if reason not in reason_codes:
+                    reason_codes.append(reason)
+
+    return tuple(reasons), tuple(reason_codes)

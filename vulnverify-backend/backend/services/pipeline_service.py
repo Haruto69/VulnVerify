@@ -150,6 +150,7 @@ def verify_csrf_finding(
 def verify_time_based_sqli_finding(
     *,
     finding: NormalizedFinding,
+    replay_result: ReplayResult,
     baseline_samples: list[TimingSample],
     verification_samples: list[TimingSample],
     verification_confidence: float,
@@ -159,7 +160,10 @@ def verify_time_based_sqli_finding(
     Finalize and persist TIME_BASED SQLi verification.
 
     Timing collection and security-environment observations remain
-    separate from this persistence/orchestration layer.
+    separate from this persistence/orchestration layer. replay_result
+    is the final verification-trial replay (mirrors the CSRF pipeline,
+    which also takes an already-collected ReplayResult from the
+    caller rather than re-executing a replay here).
     """
 
     if finding.vulnerability.category != "SQLI":
@@ -170,6 +174,7 @@ def verify_time_based_sqli_finding(
     verified = (
         finalize_time_based_sqli_verification(
             finding=finding,
+            replay_result=replay_result,
             baseline_samples=baseline_samples,
             verification_samples=verification_samples,
             verification_confidence=(
