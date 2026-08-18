@@ -9,6 +9,9 @@ from fastapi import (
 )
 
 from backend.parsers import get_parser
+from backend.services.deduplication_service import (
+    group_duplicate_findings,
+)
 from backend.services.normalization_service import (
     normalize_scan,
 )
@@ -221,3 +224,75 @@ async def read_verified_finding(
         )
 
     return finding
+
+
+@router.get("/{scan_id}/duplicate-groups")
+async def list_duplicate_groups(
+    scan_id: str,
+):
+    scan = get_scan(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    paired_findings = (
+        _pair_normalized_and_verified_findings(
+            scan_id
+        )
+    )
+
+    groups = group_duplicate_findings(
+        findings=paired_findings
+    )
+
+    return {
+        "scan_id": scan_id,
+        "count": len(groups),
+        "groups": groups,
+    }
+
+
+def _pair_normalized_and_verified_findings(
+    scan_id: str,
+):
+    """
+    Join normalized and verified findings for one scan by
+    finding_id, for use by the deduplication endpoint.
+
+    Normalized findings with no matching verified finding are
+    silently excluded, matching the existing /verified-findings
+    endpoint's semantics: only explicitly verified findings are
+    considered.
+    """
+
+    normalized_findings = get_normalized_findings(
+        scan_id
+    )
+
+    verified_findings = get_verified_findings(
+        scan_id
+    )
+
+    verified_by_id = {
+        finding.finding_id: finding
+        for finding in verified_findings
+    }
+
+    pairs = []
+
+    for normalized in normalized_findings:
+        verified = verified_by_id.get(
+            normalized.finding_id
+        )
+
+        if verified is None:
+            continue
+
+        pairs.append(
+            (normalized, verified)
+        )
+
+    return pairs
