@@ -28,8 +28,9 @@ def make_issue_xml(
     """
     Build a small, single-<issue> Burp report. Defaults to a
     SQL Injection issue name so tests exercise fields other than
-    category mapping without depending on the fallback-category
-    behavior (see test_unsupported_category_names_fall_back_to_xss).
+    category mapping without depending on the extended-category
+    mapping behavior (see
+    test_extended_category_names_map_to_dedicated_members).
     """
 
     location_xml = (
@@ -67,15 +68,13 @@ def first_finding(content: bytes, scan_id: str = "scan-burp-001"):
 
 
 # ---------------------------------------------------------------------
-# Real fixture: category fallback.
+# Real fixture: extended category mapping.
 #
 # tests/fixtures/burp_real_sample.xml contains a single Burp issue
-# named "Cross-origin resource sharing". The frozen VulnerabilityCategory
-# enum in backend/models/normalized_finding.py only defines SQLI,
-# CSRF, and XSS, so there is no dedicated CORS member available.
-# _map_category() falls back to VulnerabilityCategory.XSS for CORS,
-# Information Disclosure, Security Misconfiguration, Informational,
-# and any other unrecognized Burp issue name, rather than crashing.
+# named "Cross-origin resource sharing". VulnerabilityCategory
+# (backend/models/normalized_finding.py) defines a dedicated CORS
+# member, so _map_category() maps it there directly rather than
+# falling back to XSS.
 # ---------------------------------------------------------------------
 
 
@@ -90,18 +89,33 @@ def test_real_fixture_parses_successfully():
     assert len(findings) == 1
     assert (
         findings[0].vulnerability.category
-        == VulnerabilityCategory.XSS
+        == VulnerabilityCategory.CORS
     )
 
 
 @pytest.mark.parametrize(
-    "issue_name",
+    "issue_name,expected_category",
     [
-        "Cross-origin resource sharing",
-        "Private IP addresses disclosed",
-        "Unencrypted communications",
-        "Robots.txt file",
-        "Some completely unrecognized Burp issue name",
+        (
+            "Cross-origin resource sharing",
+            VulnerabilityCategory.CORS,
+        ),
+        (
+            "Private IP addresses disclosed",
+            VulnerabilityCategory.INFORMATION_DISCLOSURE,
+        ),
+        (
+            "Unencrypted communications",
+            VulnerabilityCategory.SECURITY_MISCONFIGURATION,
+        ),
+        (
+            "Robots.txt file",
+            VulnerabilityCategory.INFORMATIONAL,
+        ),
+        (
+            "Some completely unrecognized Burp issue name",
+            VulnerabilityCategory.OTHER,
+        ),
     ],
     ids=[
         "CORS",
@@ -111,18 +125,20 @@ def test_real_fixture_parses_successfully():
         "OTHER (fallback)",
     ],
 )
-def test_unsupported_category_names_fall_back_to_xss(issue_name):
+def test_extended_category_names_map_to_dedicated_members(
+    issue_name, expected_category
+):
     """
-    Every category branch in _map_category() beyond SQLi/CSRF/XSS
-    (CORS, Information Disclosure, Security Misconfiguration,
-    Informational, and the catch-all for an unrecognized name) maps
-    to VulnerabilityCategory.XSS, since the frozen enum has no
-    dedicated member for any of them and must not be modified.
+    Each extended category branch in _map_category() (CORS,
+    Information Disclosure, Security Misconfiguration, Informational,
+    and the catch-all for an unrecognized name) maps to its own
+    dedicated VulnerabilityCategory member rather than falling back
+    to XSS.
     """
 
     finding = first_finding(make_issue_xml(name=issue_name))
 
-    assert finding.vulnerability.category == VulnerabilityCategory.XSS
+    assert finding.vulnerability.category == expected_category
 
 
 @pytest.mark.parametrize(
@@ -608,11 +624,11 @@ def test_missing_path_defaults_to_root():
     assert finding.target.path == "/"
 
 
-def test_missing_name_uses_placeholder_and_falls_back_to_xss():
+def test_missing_name_uses_placeholder_and_falls_back_to_other():
     """
     A missing <name> falls through to "Unknown Burp finding", which
-    _map_category() cannot specifically classify, so it hits the same
-    XSS catch-all as any other unrecognized issue name.
+    _map_category() cannot specifically classify, so it hits the
+    OTHER catch-all as any other unrecognized issue name does.
     """
 
     xml = (
@@ -623,7 +639,7 @@ def test_missing_name_uses_placeholder_and_falls_back_to_xss():
     finding = first_finding(xml)
 
     assert finding.source.original_name == "Unknown Burp finding"
-    assert finding.vulnerability.category == VulnerabilityCategory.XSS
+    assert finding.vulnerability.category == VulnerabilityCategory.OTHER
 
 
 def test_missing_vulnerability_classifications_leaves_cwe_none():

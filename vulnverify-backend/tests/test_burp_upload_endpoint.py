@@ -301,29 +301,22 @@ def test_finding_references_match_the_fixture():
 
 
 # ---------------------------------------------------------------------
-# Known, accepted category limitation
+# Extended category mapping
 #
-# The frozen VulnerabilityCategory enum (backend/models/
-# normalized_finding.py) only defines SQLI, CSRF, and XSS. The
-# fixture's real Burp issue is a CORS finding, for which there is no
-# dedicated enum member. BurpParser._map_category() therefore falls
-# back to XSS for CORS (and for Information Disclosure, Security
-# Misconfiguration, Informational, and any unrecognized issue name).
-#
-# This is documented, intended behavior -- not a parser failure. The
-# original Burp category is not lost: it survives in
-# source.original_name and vulnerability.subtype ("Cross-origin
-# resource sharing"), just not as a distinct `category` value.
+# VulnerabilityCategory (backend/models/normalized_finding.py) defines
+# a dedicated CORS member. The fixture's real Burp issue is a CORS
+# finding, so BurpParser._map_category() maps it directly to
+# VulnerabilityCategory.CORS.
 # ---------------------------------------------------------------------
 
 
-def test_cors_finding_category_falls_back_to_xss_by_design():
+def test_cors_finding_category_maps_to_cors():
     _, _, finding = upload_and_fetch_finding()
 
-    assert finding["vulnerability"]["category"] == "XSS"
+    assert finding["vulnerability"]["category"] == "CORS"
 
-    # The true Burp classification is preserved elsewhere even though
-    # `category` cannot represent it.
+    # The original Burp issue name is still preserved alongside the
+    # now-dedicated category value.
     assert (
         finding["source"]["original_name"]
         == "Cross-origin resource sharing"

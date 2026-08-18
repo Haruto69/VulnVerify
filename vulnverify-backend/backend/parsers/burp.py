@@ -1018,19 +1018,17 @@ class BurpParser(BaseParser):
 
         # CORS
         #
-        # VulnerabilityCategory (frozen, backend/models/
-        # normalized_finding.py) only defines SQLI, CSRF, XSS.
-        # CORS, Information Disclosure, Security Misconfiguration,
-        # Informational, and any unrecognized issue name have no
-        # matching member, so they fall back to XSS rather than
-        # crashing the parser.
+        # VulnerabilityCategory (backend/models/normalized_finding.py)
+        # defines dedicated members for CORS, Information Disclosure,
+        # Security Misconfiguration, and Informational issue names,
+        # plus an OTHER member for anything unrecognized.
         if (
             "cross-origin resource sharing"
             in lowered
             or "cors" in lowered
         ):
             return (
-                VulnerabilityCategory.XSS
+                VulnerabilityCategory.CORS
             )
 
         # Information Disclosure
@@ -1043,7 +1041,7 @@ class BurpParser(BaseParser):
             in lowered
         ):
             return (
-                VulnerabilityCategory.XSS
+                VulnerabilityCategory.INFORMATION_DISCLOSURE
             )
 
         # Security Misconfiguration
@@ -1056,7 +1054,7 @@ class BurpParser(BaseParser):
             in lowered
         ):
             return (
-                VulnerabilityCategory.XSS
+                VulnerabilityCategory.SECURITY_MISCONFIGURATION
             )
 
         # Informational
@@ -1069,10 +1067,10 @@ class BurpParser(BaseParser):
             in lowered
         ):
             return (
-                VulnerabilityCategory.XSS
+                VulnerabilityCategory.INFORMATIONAL
             )
 
         # Unknown / unrecognized issue name
         return (
-            VulnerabilityCategory.XSS
+            VulnerabilityCategory.OTHER
         )
