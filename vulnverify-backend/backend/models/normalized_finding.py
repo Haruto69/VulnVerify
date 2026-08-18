@@ -1,4 +1,4 @@
-from enum import Enum
+﻿from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -8,6 +8,11 @@ class VulnerabilityCategory(str, Enum):
     SQLI = "SQLI"
     CSRF = "CSRF"
     XSS = "XSS"
+    CORS = "CORS"
+    INFORMATION_DISCLOSURE = "INFORMATION_DISCLOSURE"
+    SECURITY_MISCONFIGURATION = "SECURITY_MISCONFIGURATION"
+    INFORMATIONAL = "INFORMATIONAL"
+    OTHER = "OTHER"
 
 
 class NormalizedSeverity(str, Enum):
@@ -83,10 +88,17 @@ class HttpRequest(BaseModel):
     url: str
     path: str
 
-    query_parameters: dict[str, list[str]] = Field(default_factory=dict)
+    query_parameters: dict[str, list[str]] = Field(
+        default_factory=dict
+    )
 
-    headers: dict[str, str] = Field(default_factory=dict)
-    cookies: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(
+        default_factory=dict
+    )
+
+    cookies: dict[str, str] = Field(
+        default_factory=dict
+    )
 
     body: str | None = None
     content_type: str | None = None
@@ -97,8 +109,13 @@ class HttpRequest(BaseModel):
 class HttpResponse(BaseModel):
     status_code: int
 
-    headers: dict[str, str] = Field(default_factory=dict)
-    cookies: dict[str, str] = Field(default_factory=dict)
+    headers: dict[str, str] = Field(
+        default_factory=dict
+    )
+
+    cookies: dict[str, str] = Field(
+        default_factory=dict
+    )
 
     body: str | None = None
 
@@ -107,8 +124,13 @@ class HttpResponse(BaseModel):
 
 
 class FindingContext(BaseModel):
-    authentication_required: RequirementState = RequirementState.UNKNOWN
-    session_required: RequirementState = RequirementState.UNKNOWN
+    authentication_required: RequirementState = (
+        RequirementState.UNKNOWN
+    )
+
+    session_required: RequirementState = (
+        RequirementState.UNKNOWN
+    )
 
 
 class NormalizedFinding(BaseModel):
@@ -126,8 +148,14 @@ class NormalizedFinding(BaseModel):
     request: HttpRequest
     response: HttpResponse | None = None
 
-    context: FindingContext = Field(default_factory=FindingContext)
+    context: FindingContext = Field(
+        default_factory=FindingContext
+    )
 
-    references: list[str] = Field(default_factory=list)
+    references: list[str] = Field(
+        default_factory=list
+    )
 
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(
+        default_factory=dict
+    )
