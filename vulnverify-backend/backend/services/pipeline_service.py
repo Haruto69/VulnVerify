@@ -18,6 +18,9 @@ from backend.services.scan_service import (
 from backend.services.sqli_verification_service import (
     finalize_time_based_sqli_verification,
 )
+from backend.services.xss_verification_service import (
+    finalize_xss_verification,
+)
 from backend.verification.csrf_browser import (
     CsrfBrowserObservation,
 )
@@ -32,6 +35,12 @@ from backend.verification.csrf_state import (
 )
 from backend.verification.sqli_timing import (
     TimingSample,
+)
+from backend.verification.xss_context import (
+    XssSubtype,
+)
+from backend.verification.xss_observations import (
+    XssReplayAttemptObservation,
 )
 
 
@@ -184,6 +193,45 @@ def verify_time_based_sqli_finding(
                 credible_network_or_server_explanation
             ),
         )
+    )
+
+    save_verified_finding(
+        scan_id=finding.scan_id,
+        finding=verified,
+    )
+
+    return verified
+
+
+def verify_reflected_xss_finding(
+    *,
+    finding: NormalizedFinding,
+    attempts: list[XssReplayAttemptObservation],
+    verification_confidence: float,
+) -> VerifiedFinding:
+    """
+    Finalize and persist REFLECTED XSS verification for one
+    normalized finding.
+
+    verification_confidence is currently always passed in as 0.0 by
+    the API layer. This mirrors the existing TIME_BASED SQLi
+    precedent (finalize_time_based_sqli_verification /
+    verify_sqli_time_based, called above with the same placeholder):
+    XSS has no confidence policy defined yet, and this integration
+    deliberately does not invent one. A real policy is a separate,
+    later decision.
+    """
+
+    if finding.vulnerability.category != "XSS":
+        raise ValueError(
+            "REFLECTED XSS pipeline received a non-XSS finding"
+        )
+
+    verified = finalize_xss_verification(
+        finding=finding,
+        subtype=XssSubtype.REFLECTED,
+        attempts=attempts,
+        verification_confidence=verification_confidence,
     )
 
     save_verified_finding(

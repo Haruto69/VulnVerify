@@ -3,6 +3,9 @@ from fastapi import (
     HTTPException,
 )
 
+from backend.models.normalized_finding import (
+    ParameterLocation,
+)
 from backend.models.verification_trigger import (
     VerificationTriggerRequest,
 )
@@ -16,9 +19,13 @@ from backend.replay.request_builder import (
 from backend.replay.sqli_time_based_collector import (
     collect_time_based_replay_evidence,
 )
+from backend.replay.xss import (
+    collect_reflected_xss_variant_attempts,
+)
 from backend.services.pipeline_service import (
     replay_finding,
     verify_csrf_finding,
+    verify_reflected_xss_finding,
     verify_time_based_sqli_finding,
 )
 from backend.services.scan_service import (
@@ -37,6 +44,13 @@ from backend.verification.csrf_origin import (
 from backend.verification.csrf_state import (
     CsrfStateObservation,
 )
+from backend.verification.xss_context import (
+    XssSubtype,
+)
+from backend.verification.xss_mapping import (
+    map_burp_xss_subtype,
+    map_zap_xss_subtype,
+)
 
 
 router = APIRouter(
@@ -54,9 +68,10 @@ async def verify_finding(
     trigger: VerificationTriggerRequest,
 ):
     """
-    Run configured CSRF or SQLi TIME_BASED verification checks for
-    one normalized finding, dispatching on which trigger family
-    (trigger.csrf or trigger.sqli) was supplied.
+    Run configured CSRF, SQLi TIME_BASED, or REFLECTED XSS
+    verification checks for one normalized finding, dispatching on
+    which trigger family (trigger.csrf, trigger.sqli, or trigger.xss)
+    was supplied.
 
     The endpoint only derives conclusions that are supported by
     deterministic replay evidence. Missing application-specific
@@ -84,6 +99,12 @@ async def verify_finding(
 
     if trigger.sqli is not None:
         return _verify_time_based_sqli_finding(
+            finding=finding,
+            trigger=trigger,
+        )
+
+    if trigger.xss is not None:
+        return _verify_reflected_xss_finding(
             finding=finding,
             trigger=trigger,
         )
@@ -341,6 +362,102 @@ def _verify_time_based_sqli_finding(
         ),
         verification_confidence=0.0,
     )
+
+
+def _verify_reflected_xss_finding(
+    finding,
+    trigger: VerificationTriggerRequest,
+):
+    if finding.vulnerability.category != "XSS":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This verification endpoint currently "
+                "supports XSS findings only."
+            ),
+        )
+
+    if _resolve_xss_subtype(finding) != XssSubtype.REFLECTED:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This verification endpoint currently "
+                "supports REFLECTED XSS findings only."
+            ),
+        )
+
+    reflected_config = trigger.xss.reflected
+
+    if (
+        reflected_config.expected_parameter is not None
+        and reflected_config.expected_parameter
+        != finding.target.parameter
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "expected_parameter does not match the "
+                "finding's tested parameter."
+            ),
+        )
+
+    if (
+        finding.target.parameter is None
+        or finding.target.parameter_location
+        != ParameterLocation.QUERY
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "REFLECTED XSS verification currently requires "
+                "a known QUERY parameter on the finding."
+            ),
+        )
+
+    payload_variants = [
+        (variant.variant_id, variant.payload)
+        for variant in reflected_config.payload_variants
+    ]
+
+    try:
+        attempts = collect_reflected_xss_variant_attempts(
+            finding=finding,
+            payload_variants=payload_variants,
+            timeout_seconds=trigger.timeout_seconds,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    return verify_reflected_xss_finding(
+        finding=finding,
+        attempts=attempts,
+        # Placeholder confidence, mirroring the existing TIME_BASED
+        # SQLi precedent above (_verify_time_based_sqli_finding):
+        # XSS has no confidence policy defined yet, so this
+        # integration deliberately does not invent one.
+        verification_confidence=0.0,
+    )
+
+
+def _resolve_xss_subtype(
+    finding,
+) -> XssSubtype:
+    scanner = (finding.source.scanner or "").strip().upper()
+
+    if scanner == "ZAP":
+        return map_zap_xss_subtype(
+            finding.source.scanner_finding_id
+        )
+
+    if scanner == "BURP":
+        return map_burp_xss_subtype(
+            finding.vulnerability.subtype
+        )
+
+    return XssSubtype.UNKNOWN
 
 
 def _find_normalized_finding(

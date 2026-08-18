@@ -18,7 +18,10 @@ from backend.models.replay_result import (
     ReplayResponse,
     ReplayResult,
 )
-from backend.replay.xss import replay_original_xss_request
+from backend.replay.xss import (
+    collect_reflected_xss_variant_attempts,
+    replay_original_xss_request,
+)
 from backend.verification.xss_context import XssSubtype
 
 
@@ -228,3 +231,158 @@ def test_custom_variant_id_is_preserved(monkeypatch):
     )
 
     assert observation.payload_variant_id == "scanner-replay-1"
+
+
+def make_finding_with_marker_url() -> NormalizedFinding:
+    finding = make_finding()
+
+    return finding.model_copy(
+        update={
+            "target": finding.target.model_copy(
+                update={
+                    "url": (
+                        "http://example.test/search?q=placeholder"
+                    ),
+                    "normalized_url": (
+                        "http://example.test/search?q=placeholder"
+                    ),
+                    "parameter": "q",
+                }
+            ),
+            "request": finding.request.model_copy(
+                update={
+                    "url": (
+                        "http://example.test/search?q=placeholder"
+                    ),
+                }
+            ),
+        }
+    )
+
+
+def make_reflecting_replay_result(body: str) -> ReplayResult:
+    return ReplayResult(
+        finding_id="xss-001",
+        replay=ReplayExecution(
+            executed=True,
+            timestamp=datetime.now(timezone.utc),
+            request=ReplayRequest(
+                method="GET",
+                url="http://example.test/search?q=placeholder",
+                headers={},
+                body=None,
+            ),
+            response=ReplayResponse(
+                status=200,
+                headers={},
+                body=body,
+            ),
+        ),
+        observations=[],
+        errors=[],
+    )
+
+
+def test_collect_reflected_xss_variant_attempts_replays_each_variant(
+    monkeypatch,
+):
+    calls = []
+
+    def fake_execute_replay(*, finding_id, request, timeout_seconds):
+        calls.append(request.url)
+        return make_reflecting_replay_result("<html>no match</html>")
+
+    monkeypatch.setattr(
+        "backend.replay.xss.execute_replay",
+        fake_execute_replay,
+    )
+
+    finding = make_finding_with_marker_url()
+
+    attempts = collect_reflected_xss_variant_attempts(
+        finding=finding,
+        payload_variants=[
+            ("variant-1", "MARK1"),
+            ("variant-2", "MARK2"),
+        ],
+    )
+
+    assert len(attempts) == 2
+    assert [a.payload_variant_id for a in attempts] == [
+        "variant-1",
+        "variant-2",
+    ]
+    assert calls[0].endswith("q=MARK1")
+    assert calls[1].endswith("q=MARK2")
+
+
+def test_collect_reflected_xss_variant_attempts_sets_evidence_from_analyzer(
+    monkeypatch,
+):
+    def fake_execute_replay(*, finding_id, request, timeout_seconds):
+        return make_reflecting_replay_result(
+            "<div><script>MARK1</script></div>"
+        )
+
+    monkeypatch.setattr(
+        "backend.replay.xss.execute_replay",
+        fake_execute_replay,
+    )
+
+    finding = make_finding_with_marker_url()
+
+    attempts = collect_reflected_xss_variant_attempts(
+        finding=finding,
+        payload_variants=[
+            ("variant-1", "<script>MARK1</script>"),
+        ],
+    )
+
+    assert len(attempts) == 1
+    attempt = attempts[0]
+
+    assert attempt.browser_completed_successfully is True
+    assert attempt.payload_reflected_or_rendered is True
+    assert attempt.payload_unescaped_in_executable_context is True
+    # marker_fired must never be set by the HTTP-only analyzer.
+    assert attempt.marker_fired is False
+
+
+def test_collect_reflected_xss_variant_attempts_marks_failed_replay(
+    monkeypatch,
+):
+    def fake_execute_replay(*, finding_id, request, timeout_seconds):
+        return ReplayResult(
+            finding_id="xss-001",
+            replay=ReplayExecution(
+                executed=True,
+                timestamp=datetime.now(timezone.utc),
+                request=ReplayRequest(
+                    method="GET",
+                    url=request.url,
+                    headers={},
+                    body=None,
+                ),
+                response=ReplayResponse(
+                    status=503,
+                    headers={},
+                    body=None,
+                ),
+            ),
+            observations=[],
+            errors=[],
+        )
+
+    monkeypatch.setattr(
+        "backend.replay.xss.execute_replay",
+        fake_execute_replay,
+    )
+
+    finding = make_finding_with_marker_url()
+
+    attempts = collect_reflected_xss_variant_attempts(
+        finding=finding,
+        payload_variants=[("variant-1", "MARK1")],
+    )
+
+    assert attempts[0].browser_completed_successfully is False
