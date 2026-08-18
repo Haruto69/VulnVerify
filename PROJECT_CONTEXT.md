@@ -288,6 +288,67 @@ This behavior is intentionally more defensive than the current SQLi sibling impl
 
 ---
 
+## Deduplication
+
+### Status
+
+Deduplication V1 (pure, single-scan grouping) is implemented and tested.
+
+This is a grouping-only slice. It is currently unwired: not called from
+`pipeline_service.py`, not persisted, and not exposed through any API
+endpoint.
+
+Do not claim the full deduplication pipeline is complete. Only V1 pure
+grouping is complete.
+
+### New files
+
+- `backend/models/deduplicated_finding.py`
+  - `DuplicateGroup`
+  - `DuplicateGroupMember`
+- `backend/services/deduplication_service.py`
+  - `group_duplicate_findings()`
+- `tests/test_deduplication_service.py`
+
+### Grouping key
+
+Deduplication V1 groups findings using exactly this key:
+
+```
+(
+    vulnerability.category,
+    target.normalized_url,
+    target.parameter
+)
+```
+
+### Decisions
+
+- Category-level grouping, not subtype-level.
+- `parameter=None` is a valid grouping-key component.
+- Single-scan only.
+- Mixed scan IDs are rejected rather than silently combined.
+- `NormalizedFinding` and `VerifiedFinding` are paired by `finding_id`.
+- Mismatched `NormalizedFinding`/`VerifiedFinding` IDs are rejected.
+- Existing classifications and confidences are preserved per member.
+- No merged classification.
+- No confidence modification.
+- No representative finding selection.
+- No persistence.
+- No API endpoint.
+- No pipeline integration.
+- No cross-scan deduplication.
+- No parser/normalization changes.
+- No verification/classification logic changes.
+
+### Tests
+
+13 new tests in `tests/test_deduplication_service.py`.
+
+Full suite after this slice: `798 passed, 1 warning`. No regressions.
+
+---
+
 ## Tests
 
 Before the XSS implementation:
@@ -302,9 +363,14 @@ After the response-analysis bug fix:
 - 3 additional regression tests were added.
 - No regressions were observed.
 
+After Deduplication V1:
+- 798 tests passed.
+- 13 new deduplication tests.
+- No regressions were observed.
+
 Latest verified result:
 
-`785 passed, 1 warning`
+`798 passed, 1 warning`
 
 Always rerun tests after pulling, merging, or changing code rather than trusting this document blindly.
 
@@ -336,19 +402,18 @@ Always rerun tests after pulling, merging, or changing code rather than trusting
 
 The reflected XSS integration is implemented, reviewed, corrected, tested, and committed.
 
-The next task should NOT blindly add more XSS functionality.
+Deduplication V1 (pure, single-scan grouping) is implemented and tested. It is not merely being investigated -- the grouping contract and its tests are complete. It remains unwired: no persistence, no API endpoint, no pipeline integration.
 
-First inspect the latest repository state and team/reference documents.
-
-Then determine the next highest-priority unfinished work from the project plan/team ownership.
+The next task is to review Deduplication V1 and decide how (and whether) to integrate it -- persistence, API exposure, and/or pipeline wiring -- not to redesign or reinvestigate the grouping contract from scratch.
 
 Before modifying code:
 1. Inspect the relevant existing implementation.
-2. Compare against established CSRF/SQLi patterns where applicable.
+2. Compare against established CSRF/SQLi/XSS patterns where applicable.
 3. Check whether the work is already implemented by another team member.
 4. Identify the smallest safe next implementation slice.
 5. Run focused tests before the full suite.
 6. Do not modify frozen XSS classification logic unless explicitly assigned.
+7. Do not modify the Deduplication V1 grouping contract without an explicit decision.
 
 ---
 
@@ -370,3 +435,6 @@ Before modifying code:
 - STORED and DOM_BASED XSS verification are not implemented in this integration.
 - Event-handler recognition is intentionally conservative and does not enumerate every possible HTML event handler.
 - The endpoint-level test suite does not currently exercise every mutation `ValueError` path through the HTTP boundary; unit tests cover the mutation helper itself.
+- Deduplication V1 is currently unwired: it is not called from `pipeline_service.py`, not exposed through any API endpoint, and its results are not persisted.
+- Cross-scan and cross-scanner deduplication are not implemented; Deduplication V1 is single-scan only and rejects mixed scan IDs rather than combining them.
+- Deduplication V1 groups at category level only; subtype-level grouping is not implemented.
