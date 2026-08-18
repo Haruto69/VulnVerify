@@ -3,6 +3,9 @@ from fastapi import FastAPI
 from backend.api.findings import (
     router as findings_router,
 )
+from backend.api.risks import (
+    router as risks_router,
+)
 from backend.api.scans import (
     router as scans_router,
 )
@@ -37,5 +40,10 @@ app.include_router(
 
 app.include_router(
     findings_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    risks_router,
     prefix="/api/v1",
 )
