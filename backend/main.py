@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.enrichment import (
     router as enrichment_router,
@@ -17,6 +18,31 @@ from backend.api.scans import (
 app = FastAPI(
     title="VulnVerify API",
     version="0.1.0",
+)
+
+
+# Local development CORS.
+#
+# The frontend is served separately (Vite default port 5173), so the
+# browser treats API calls as cross-origin and blocks them without
+# these headers. Origins are pinned to the local frontend dev server
+# rather than "*", and credentials are deliberately left disabled --
+# this API uses no cookies or auth headers.
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=[
+        "GET",
+        "POST",
+        "OPTIONS",
+    ],
+    allow_headers=["*"],
 )
 
 
