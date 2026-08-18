@@ -274,6 +274,8 @@ class ZapParser(BaseParser):
                 "zap_other_info": instance.get("otherinfo"),
                 "zap_alert_other_info": alert.get("otherinfo"),
                 "zap_tags": alert.get("tags", []),
+                "zap_description": alert.get("desc"),
+                "zap_solution": alert.get("solution"),
             },
         )
 
