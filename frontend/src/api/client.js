@@ -7,8 +7,45 @@
  * reshaped here.
  */
 
-export const API_BASE_URL =
+const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api/v1";
+
+const API_BASE_URL_STORAGE_KEY = "vulnverify.apiBaseUrl";
+
+/**
+ * The backend base URL every request() call uses.
+ *
+ * Reads a runtime override from localStorage (set by the Settings
+ * page) when present, falling back to the build-time
+ * VITE_API_URL. This is a real, working setting -- not a display-only
+ * field -- and takes effect on the next request, no rebuild required.
+ */
+export function getApiBaseUrl() {
+  try {
+    return (
+      localStorage.getItem(API_BASE_URL_STORAGE_KEY) ||
+      DEFAULT_API_BASE_URL
+    );
+  } catch {
+    return DEFAULT_API_BASE_URL;
+  }
+}
+
+export function setApiBaseUrl(url) {
+  const trimmed = url.trim().replace(/\/+$/, "");
+
+  if (!trimmed) {
+    localStorage.removeItem(API_BASE_URL_STORAGE_KEY);
+    return DEFAULT_API_BASE_URL;
+  }
+
+  localStorage.setItem(API_BASE_URL_STORAGE_KEY, trimmed);
+  return trimmed;
+}
+
+export function getDefaultApiBaseUrl() {
+  return DEFAULT_API_BASE_URL;
+}
 
 /**
  * Normalized error thrown for any non-2xx response or network
@@ -55,11 +92,13 @@ function extractDetailMessage(body) {
 async function request(path, options = {}) {
   let response;
 
+  const baseUrl = getApiBaseUrl();
+
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, options);
+    response = await fetch(`${baseUrl}${path}`, options);
   } catch {
     throw new ApiError(
-      `Could not reach the backend at ${API_BASE_URL}. ` +
+      `Could not reach the backend at ${baseUrl}. ` +
         "Is it running?",
       { status: null }
     );
@@ -178,4 +217,9 @@ export function loadDemoGroundTruth(scanId) {
   return request(`/scans/${scanId}/ground-truth/demo`, {
     method: "POST",
   });
+}
+
+/** GET /scans/{scan_id}/report -> ScanReport */
+export function getScanReport(scanId) {
+  return request(`/scans/${scanId}/report`);
 }

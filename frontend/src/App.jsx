@@ -14,11 +14,18 @@ import {
   CheckCircle2,
   XCircle,
   Clock3,
+  Download,
   HelpCircle as UnknownIcon,
 } from "lucide-react";
 
 import "./App.css";
 import { useScanData } from "./hooks/useScanData";
+import {
+  getScanReport,
+  getApiBaseUrl,
+  setApiBaseUrl,
+  getDefaultApiBaseUrl,
+} from "./api/client";
 import {
   getVerifiableFamily,
   toBackendScannerValue,
@@ -146,9 +153,13 @@ function App() {
           <PrioritizedRisks scan={scan} />
         ) : activePage === "Reports" ? (
           <ReportsPage scan={scan} />
-        ) : (
-          <PlaceholderPage page={activePage} />
-        )}
+        ) : activePage === "Metrics" ? (
+          <MetricsPage scan={scan} />
+        ) : activePage === "Settings" ? (
+          <SettingsPage />
+        ) : activePage === "Help" ? (
+          <HelpPage />
+        ) : null}
       </main>
     </div>
   );
@@ -1301,6 +1312,36 @@ function ReportsPage({ scan }) {
     })
     .slice(0, 8);
 
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(null);
+
+  const handleGenerateReport = async () => {
+    if (!scan.scanId) return;
+
+    setGenerating(true);
+    setGenerateError(null);
+
+    try {
+      const report = await getScanReport(scan.scanId);
+      const blob = new Blob(
+        [JSON.stringify(report, null, 2)],
+        { type: "application/json" }
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `vulnverify-report-${scan.scanId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setGenerateError(err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="reports-page">
       <div className="page-description">
@@ -1310,17 +1351,19 @@ function ReportsPage({ scan }) {
         </div>
         <button
           className="new-scan-button"
-          onClick={() => {
-            // No report-generation endpoint exists on the backend yet;
-            // this remains a placeholder action.
-            alert(
-              "Report generation is not yet implemented on the backend."
-            );
-          }}
+          onClick={handleGenerateReport}
+          disabled={!hasScan || generating}
         >
-          Generate Report
+          <Download size={15} />
+          {generating ? "Generating..." : "Generate Report"}
         </button>
       </div>
+
+      {generateError && (
+        <ErrorBanner
+          message={`Could not generate report: ${generateError}`}
+        />
+      )}
 
       {!hasScan ? (
         <EmptyState text="No scan uploaded yet." />
@@ -1378,6 +1421,298 @@ function ReportsPage({ scan }) {
 }
 
 /* =========================
+   METRICS
+========================= */
+
+/**
+ * Full-detail evaluation view for the current scan. Reuses the same
+ * scan.metrics data and VerificationPerformancePanel component the
+ * Dashboard uses -- this page adds the raw counts (ground truth,
+ * evaluated, unverified, inconclusive) the Dashboard's condensed
+ * panel doesn't have room for, but never computes anything itself.
+ */
+function MetricsPage({ scan }) {
+  const hasScan = Boolean(scan.scanId);
+  const metrics = scan.metrics;
+
+  return (
+    <div className="metrics-page">
+      <div className="page-description">
+        <div>
+          <h2>Verification Evaluation Metrics</h2>
+          <p>
+            {hasScan
+              ? `Precision, recall, and F1 for `
+              : "No scan loaded yet — "}
+            <strong>
+              {hasScan
+                ? scan.scanMeta.filename
+                : "upload a scan to see evaluation metrics"}
+            </strong>
+            {hasScan &&
+              ", computed only from explicit ground-truth labels."}
+          </p>
+        </div>
+      </div>
+
+      {!hasScan ? (
+        <EmptyState text="Upload a scan to see evaluation metrics." />
+      ) : (
+        <>
+          {metrics && (
+            <section className="stats-grid">
+              <StatCard
+                title="EVALUATION SCOPE"
+                value="This scan"
+                subtitle={scan.scanMeta.filename}
+                type="blue"
+              />
+              <StatCard
+                title="GROUND TRUTH LABELS"
+                value={String(metrics.ground_truth_count)}
+                subtitle="Labeled findings"
+                type="purple"
+              />
+              <StatCard
+                title="EVALUATED FINDINGS"
+                value={String(metrics.evaluated_count)}
+                subtitle="Scored TP/FP/TN/FN"
+                type="green"
+              />
+              <StatCard
+                title="UNVERIFIED LABELS"
+                value={String(metrics.unverified_ground_truth_count)}
+                subtitle="Labeled, not yet verified"
+                type="orange"
+              />
+              <StatCard
+                title="INCONCLUSIVE"
+                value={String(metrics.excluded_inconclusive_count)}
+                subtitle="Excluded from matrix"
+                type="orange"
+              />
+            </section>
+          )}
+
+          <section className="analysis-grid single-panel">
+            <VerificationPerformancePanel scan={scan} hasScan={hasScan} />
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* =========================
+   SETTINGS
+========================= */
+
+/**
+ * Only exposes controls that actually do something.
+ *
+ * The backend API URL is a real, working setting: it's persisted to
+ * localStorage and every subsequent api/client.js request reads it
+ * (see getApiBaseUrl in api/client.js), so changing it here takes
+ * effect immediately -- no rebuild required. Everything else on this
+ * page is read-only information sourced from the actual parser/
+ * verification code, not invented capabilities.
+ */
+function SettingsPage() {
+  const [apiUrl, setApiUrlValue] = useState(getApiBaseUrl());
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = (e) => {
+    e.preventDefault();
+    const applied = setApiBaseUrl(apiUrl);
+    setApiUrlValue(applied);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleReset = () => {
+    const defaultUrl = getDefaultApiBaseUrl();
+    setApiBaseUrl("");
+    setApiUrlValue(defaultUrl);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <div className="settings-page">
+      <div className="page-description">
+        <div>
+          <h2>Settings</h2>
+          <p>Configuration that actually affects this application.</p>
+        </div>
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Backend API URL</h3>
+            <p>
+              Where the frontend sends every request. Persisted in this
+              browser only.
+            </p>
+          </div>
+        </div>
+
+        <form className="settings-form" onSubmit={handleSave}>
+          <div className="form-field">
+            <label>API base URL</label>
+            <input
+              type="text"
+              value={apiUrl}
+              onChange={(e) => setApiUrlValue(e.target.value)}
+              placeholder={getDefaultApiBaseUrl()}
+            />
+          </div>
+
+          <div className="settings-actions">
+            <button type="submit" className="new-scan-button">
+              Save
+            </button>
+            <button
+              type="button"
+              className="view-button"
+              onClick={handleReset}
+            >
+              Reset to default
+            </button>
+            {saved && <span className="settings-saved">Saved.</span>}
+          </div>
+        </form>
+      </div>
+
+      <div className="panel settings-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Application Information</h3>
+            <p>What this build of VulnVerify actually supports.</p>
+          </div>
+        </div>
+
+        <div className="metric-line">
+          <span>Supported scanner inputs</span>
+          <strong>OWASP ZAP (JSON), Burp Suite (XML)</strong>
+        </div>
+        <div className="metric-line">
+          <span>Verification families</span>
+          <strong>CSRF, SQLi (TIME_BASED / ERROR_BASED), Reflected XSS</strong>
+        </div>
+        <div className="metric-line">
+          <span>Verification classifications</span>
+          <strong>TRUE_POSITIVE, FALSE_POSITIVE, INCONCLUSIVE</strong>
+        </div>
+        <div className="metric-line">
+          <span>Persistence</span>
+          <strong>In-memory (backend restarts clear all scans)</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   HELP
+========================= */
+
+function HelpPage() {
+  return (
+    <div className="help-page">
+      <div className="page-description">
+        <div>
+          <h2>Help</h2>
+          <p>How VulnVerify's verification workflow actually works.</p>
+        </div>
+      </div>
+
+      <div className="panel help-panel">
+        <h3>Workflow</h3>
+        <ol className="help-steps">
+          <li>
+            <strong>Upload</strong> a ZAP JSON report or a Burp Suite XML
+            report on the New Scan page.
+          </li>
+          <li>
+            <strong>Normalize</strong> — the backend parses the report
+            into a common finding format.
+          </li>
+          <li>
+            <strong>Review findings</strong> on the Findings page.
+          </li>
+          <li>
+            <strong>Enrichment</strong> — CWE/OWASP reference context is
+            attached to each finding automatically.
+          </li>
+          <li>
+            <strong>Verify</strong> each finding by replaying real
+            requests against the target — nothing is confirmed from
+            scanner output alone.
+          </li>
+          <li>
+            <strong>Review verification results</strong> — each finding
+            is classified TRUE_POSITIVE, FALSE_POSITIVE, or
+            INCONCLUSIVE, with a stated reason.
+          </li>
+          <li>
+            <strong>Risk/priority</strong> is calculated from the
+            verification result and the scanner's own severity on the
+            Prioritized Risks page.
+          </li>
+          <li>
+            <strong>Evaluate against ground truth</strong> on the
+            Metrics page — precision/recall/F1 are only ever computed
+            when explicit ground-truth labels exist for the scan.
+          </li>
+        </ol>
+      </div>
+
+      <div className="panel help-panel">
+        <h3>Verification types</h3>
+
+        <div className="help-verification-type">
+          <h4>CSRF</h4>
+          <p>
+            Replays the request and checks for state change, CSRF
+            defenses (token rejection), and Origin/Referer enforcement.
+          </p>
+        </div>
+
+        <div className="help-verification-type">
+          <h4>SQLi — TIME_BASED</h4>
+          <p>
+            Requires a <strong>baseline parameter value</strong> (the
+            original, pre-injection value of the tested parameter).
+            The verifier replays baseline and time-delay payloads and
+            compares response timing.
+          </p>
+        </div>
+
+        <div className="help-verification-type">
+          <h4>SQLi — ERROR_BASED</h4>
+          <p>
+            Does <strong>not</strong> require a baseline value. The
+            verifier strips the scanner's payload to get a clean
+            baseline request automatically, then replays the original
+            scanner request and checks for database error signatures.
+          </p>
+        </div>
+
+        <div className="help-verification-type">
+          <h4>Reflected XSS</h4>
+          <p>
+            Replays one or more payload variants against the finding's
+            query parameter and checks whether the payload is reflected
+            unescaped in the response.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
    SHARED UI PRIMITIVES
 ========================= */
 
@@ -1392,19 +1727,6 @@ function ErrorBanner({ message }) {
 
 function EmptyState({ text }) {
   return <div className="empty-state">{text}</div>;
-}
-
-function PlaceholderPage({ page }) {
-  return (
-    <div className="placeholder">
-      <div className="placeholder-icon">
-        <HelpCircle size={38} />
-      </div>
-      <h2>{page}</h2>
-      <p>This section is ready to be connected to the VeriTriage workflow.</p>
-      <button className="new-scan-button">Coming in the next module</button>
-    </div>
-  );
 }
 
 export default App;

@@ -10,6 +10,9 @@ from backend.api.evaluation import (
 from backend.api.findings import (
     router as findings_router,
 )
+from backend.api.reports import (
+    router as reports_router,
+)
 from backend.api.risks import (
     router as risks_router,
 )
@@ -87,5 +90,10 @@ app.include_router(
 
 app.include_router(
     evaluation_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    reports_router,
     prefix="/api/v1",
 )
