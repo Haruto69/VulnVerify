@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   uploadScan,
   getScans,
@@ -14,6 +14,39 @@ import {
 } from "../api/client";
 
 const VERIFICATION_POLL_INTERVAL_MS = 800;
+
+// The backend already persists every scan (SQLite, see
+// backend/storage/db.py) -- it survives a backend restart just fine.
+// What did NOT survive was the frontend's own idea of "which scan am
+// I currently looking at": scanId/scanMeta below are plain useState,
+// so a full page reload reset them to null and the app landed back on
+// an empty Dashboard, even though GET /scans still returned every
+// persisted scan underneath. This key is the fix: the active scan_id
+// is stored here on every successful upload/select, and restored via
+// loadScan() on mount (see the effect near the bottom of this file).
+const ACTIVE_SCAN_ID_STORAGE_KEY = "vulnverify.activeScanId";
+
+function storeActiveScanId(scanId) {
+  try {
+    if (scanId) {
+      localStorage.setItem(ACTIVE_SCAN_ID_STORAGE_KEY, scanId);
+    } else {
+      localStorage.removeItem(ACTIVE_SCAN_ID_STORAGE_KEY);
+    }
+  } catch {
+    // Storage can be unavailable (private browsing, quota, etc.) --
+    // the app still works for the current session, it just won't
+    // survive a reload. Never let this crash the actual scan action.
+  }
+}
+
+function readStoredActiveScanId() {
+  try {
+    return localStorage.getItem(ACTIVE_SCAN_ID_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Central client-side state for the currently loaded scan.
@@ -232,6 +265,7 @@ export function useScanData() {
         setScanId(id);
         setScanMeta(meta);
         setUploadState("success");
+        storeActiveScanId(id);
         await refreshScanData(id);
 
         // A single, non-polling check: shows this scan's already-
@@ -246,6 +280,10 @@ export function useScanData() {
 
         return meta;
       } catch (err) {
+        // The stored scan_id turned out to be invalid (e.g. it no
+        // longer exists on the backend) -- forget it rather than
+        // re-attempting and re-failing on every future reload.
+        storeActiveScanId(null);
         setLoadError(err);
         throw err;
       } finally {
@@ -266,6 +304,7 @@ export function useScanData() {
         setScanId(result.scan_id);
         setScanMeta(result);
         setUploadState("success");
+        storeActiveScanId(result.scan_id);
         await refreshScanData(result.scan_id);
 
         // Fire-and-forget: the backend already started automatic
@@ -317,6 +356,24 @@ export function useScanData() {
     },
     [scanId, refreshScanData]
   );
+
+  // Restore the previously-active scan, once, on mount -- e.g. after
+  // a full page reload. Silent on failure (a stale/deleted scan_id
+  // is already cleaned up inside loadScan's own catch block above);
+  // this is a best-effort convenience restoring what the user was
+  // last looking at, not a required step, so it must never surface
+  // its own error banner on top of whatever page first renders.
+  useEffect(() => {
+    const storedScanId = readStoredActiveScanId();
+
+    if (storedScanId) {
+      loadScan(storedScanId).catch(() => {});
+    }
+    // Intentionally empty deps: this must run exactly once, on
+    // mount, regardless of loadScan's identity (which is itself
+    // stable across renders since refreshScanData never changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     scanId,
