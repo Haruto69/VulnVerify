@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   uploadScan,
+  getScans,
   getFindings,
   getVerifiedFindings,
   getDuplicateGroups,
@@ -117,6 +118,56 @@ export function useScanData() {
     }
   }, [scanId, refreshScanData]);
 
+  /**
+   * Loads a scan the user already uploaded in a previous session,
+   * identified only by scan_id (e.g. picked from Scan History).
+   *
+   * There is no dedicated "GET /scans/{scan_id}" metadata endpoint --
+   * only the list endpoint (GET /scans) returns filename/scanner, so
+   * this fetches that list and picks the matching entry out of it,
+   * rather than inventing a new backend route. Everything else
+   * (findings, verified findings, priorities, metrics, ...) is then
+   * loaded the exact same way a fresh upload loads it, via
+   * refreshScanData -- nothing is duplicated.
+   */
+  const loadScan = useCallback(
+    async (id) => {
+      setLoadingScanData(true);
+      setLoadError(null);
+
+      // Stale UI state from whatever scan was previously active
+      // (verify errors keyed by that scan's finding_ids, an in-flight
+      // verifying indicator, a leftover ground-truth error) should
+      // not carry over to the newly selected scan.
+      setVerifyingId(null);
+      setVerifyErrorsById({});
+      setGroundTruthError(null);
+      setUploadError(null);
+
+      try {
+        const allScans = await getScans();
+        const meta = allScans.find((item) => item.scan_id === id);
+
+        if (!meta) {
+          throw new Error(`Scan ${id} was not found on the backend.`);
+        }
+
+        setScanId(id);
+        setScanMeta(meta);
+        setUploadState("success");
+        await refreshScanData(id);
+
+        return meta;
+      } catch (err) {
+        setLoadError(err);
+        throw err;
+      } finally {
+        setLoadingScanData(false);
+      }
+    },
+    [refreshScanData]
+  );
+
   const startScan = useCallback(
     async ({ scanner, file }) => {
       setUploadState("uploading");
@@ -189,6 +240,7 @@ export function useScanData() {
     loadingGroundTruth,
     groundTruthError,
     startScan,
+    loadScan,
     verify,
     refreshScanData,
     loadDemoGroundTruth: loadDemoGroundTruthData,

@@ -723,10 +723,6 @@ button {
     padding: 0 20px;
   }
 
-  .scan-info {
-    display: none;
-  }
-
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1459,6 +1455,15 @@ button {
   padding: 28px 34px 50px;
 }
 
+/* Settings/Help are short, form/text-heavy pages -- a full 1440px
+   reading width would leave a giant empty area beside a narrow
+   panel, so their content is capped to a comfortable column instead
+   of stretching to fill the viewport. */
+.settings-page,
+.help-page {
+  max-width: 720px;
+}
+
 
 /* =========================
    METRICS — KPI ROW
@@ -1711,7 +1716,6 @@ button {
 
 .settings-panel {
   margin-top: 18px;
-  max-width: 560px;
 }
 
 .settings-form {
@@ -1771,4 +1775,222 @@ button {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
+}
+
+
+/* =========================
+   TOPBAR — CURRENT SCAN INDICATOR
+========================= */
+
+.scan-info-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.scan-info-button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.scan-info-button svg {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+/* Kept here, after the base .scan-info-button rule above, rather
+   than in the shared RESPONSIVE section near the top of this file --
+   see the identical note on the Metrics responsive block: a
+   media-query rule only wins the cascade over a same-specificity
+   unconditional rule if it comes after it in source order. */
+@media (max-width: 800px) {
+  .scan-info-button {
+    display: none;
+  }
+}
+
+
+/* =========================
+   REPORTS
+========================= */
+
+.reports-page {
+  padding: 28px 34px 50px;
+}
+
+.reports-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+@media (max-width: 800px) {
+  .reports-page {
+    padding: 20px;
+  }
+}
+
+
+/* =========================
+   SCAN HISTORY
+========================= */
+
+.scan-history-page {
+  padding: 28px 34px 50px;
+}
+
+.scan-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.scan-history-list {
+  margin-top: 4px;
+}
+
+.scan-history-header,
+.scan-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) 110px 24px;
+  gap: 14px;
+  align-items: center;
+}
+
+.scan-history-header {
+  padding: 0 14px 10px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.scan-history-row {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 14px;
+  margin-top: 10px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.scan-history-row:hover {
+  background: var(--surface-hover);
+}
+
+.scan-history-row.active {
+  border-color: var(--primary);
+}
+
+.scan-history-row:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.scan-history-row svg {
+  color: var(--text-dim);
+  justify-self: end;
+}
+
+.scan-history-filename {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.scan-history-filename strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-history-filename small {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.scan-history-loading {
+  color: var(--text-dim);
+  font-size: 10px;
+  justify-self: end;
+}
+
+.scan-status-normalized {
+  color: var(--success);
+  background: var(--success-bg);
+}
+
+.scan-status-failed {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.scan-status-uploaded {
+  color: var(--text-muted);
+  background: var(--divider);
+}
+
+@media (max-width: 900px) {
+  .scan-history-page {
+    padding: 22px;
+  }
+
+  .scan-history-header {
+    display: none;
+  }
+
+  .scan-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "filename chevron"
+      "scanner  status";
+    row-gap: 8px;
+  }
+
+  .scan-history-filename {
+    grid-area: filename;
+  }
+
+  .scan-history-row svg,
+  .scan-history-loading {
+    grid-area: chevron;
+  }
+
+  .scan-history-row span:nth-child(2) {
+    grid-area: scanner;
+  }
+
+  .scan-history-row .status {
+    grid-area: status;
+    justify-self: start;
+  }
+}
+
+@media (max-width: 700px) {
+  .scan-history-page {
+    padding: 18px;
+  }
 }

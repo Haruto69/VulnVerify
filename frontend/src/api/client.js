@@ -127,6 +127,11 @@ async function request(path, options = {}) {
   return body;
 }
 
+/** GET /scans -> Scan[] (scan_id, filename, content_type, scanner, status, error) */
+export function getScans() {
+  return request("/scans");
+}
+
 /** POST /scans -- multipart/form-data upload of a scanner report. */
 export function uploadScan({ scanner, file }) {
   const formData = new FormData();

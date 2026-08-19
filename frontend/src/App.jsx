@@ -8,6 +8,7 @@ import {
   BarChart3,
   Settings,
   HelpCircle,
+  History,
   Plus,
   ChevronRight,
   AlertTriangle,
@@ -23,6 +24,7 @@ import {
 import "./App.css";
 import { useScanData } from "./hooks/useScanData";
 import {
+  getScans,
   getScanReport,
   getApiBaseUrl,
   setApiBaseUrl,
@@ -68,6 +70,7 @@ function App() {
   const menuItems = [
     { name: "Dashboard", icon: LayoutDashboard },
     { name: "New Scan", icon: ScanLine },
+    { name: "Scan History", icon: History },
     { name: "Findings", icon: ShieldAlert },
     { name: "Prioritized Risks", icon: ShieldCheck },
     { name: "Reports", icon: FileText },
@@ -157,16 +160,26 @@ function App() {
               New Scan
             </button>
 
-            <div className="scan-info">
-              <strong>
-                {scan.scanMeta ? scan.scanMeta.filename : "No scan yet"}
-              </strong>
-              <span>
-                {scan.scanMeta
-                  ? `${scan.scanMeta.scanner} · ${scan.scanMeta.finding_count} findings`
-                  : "Upload a report to begin"}
-              </span>
-            </div>
+            <button
+              type="button"
+              className="scan-info-button"
+              onClick={() => setActivePage("Scan History")}
+              title="View scan history"
+            >
+              <div className="scan-info">
+                <strong>
+                  {scan.scanMeta ? scan.scanMeta.filename : "No scan yet"}
+                </strong>
+                <span>
+                  {scan.scanMeta
+                    ? `${scannerDisplayName(scan.scanMeta.scanner)} · ${
+                        scan.findings.length
+                      } finding${scan.findings.length === 1 ? "" : "s"}`
+                    : "Upload a report to begin"}
+                </span>
+              </div>
+              <ChevronRight size={14} />
+            </button>
 
             <div className="small-avatar">JD</div>
           </div>
@@ -176,12 +189,14 @@ function App() {
           <Dashboard scan={scan} onNavigate={setActivePage} />
         ) : activePage === "New Scan" ? (
           <NewScan scan={scan} onUploaded={() => setActivePage("Findings")} />
+        ) : activePage === "Scan History" ? (
+          <ScanHistoryPage scan={scan} onNavigate={setActivePage} />
         ) : activePage === "Findings" ? (
           <FindingsPage scan={scan} />
         ) : activePage === "Prioritized Risks" ? (
           <PrioritizedRisks scan={scan} />
         ) : activePage === "Reports" ? (
-          <ReportsPage scan={scan} />
+          <ReportsPage key={scan.scanId} scan={scan} />
         ) : activePage === "Metrics" ? (
           <MetricsPage scan={scan} />
         ) : activePage === "Settings" ? (
@@ -751,6 +766,134 @@ function NewScan({ scan, onUploaded }) {
 }
 
 /* =========================
+   SCAN HISTORY
+========================= */
+
+/**
+ * "What scans have I previously uploaded?" -- backed entirely by
+ * GET /scans (backend/api/scans.py list_scans -> get_all_scans()).
+ * Fetched fresh every time this page mounts (i.e. every time the
+ * user navigates here) rather than cached in state, since the
+ * backend -- not the frontend -- is the source of truth for scan
+ * history and scans can appear between visits.
+ */
+function ScanHistoryPage({ scan, onNavigate }) {
+  const [scans, setScans] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectingId, setSelectingId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getScans()
+      .then((result) => {
+        if (!cancelled) setScans(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSelect = async (scanId) => {
+    setSelectingId(scanId);
+
+    try {
+      await scan.loadScan(scanId);
+      onNavigate("Findings");
+    } catch {
+      // Surfaced via scan.loadError, which the destination pages
+      // (Dashboard/Findings) already render as an ErrorBanner.
+    } finally {
+      setSelectingId(null);
+    }
+  };
+
+  // Most-recently-uploaded first. The backend keeps scans in
+  // insertion order and carries no timestamp, so this is real
+  // ordering information (not an invented one) -- it just isn't a
+  // date.
+  const ordered = [...scans].reverse();
+
+  return (
+    <div className="scan-history-page">
+      <div className="page-description">
+        <div>
+          <h2>Scan History</h2>
+          <p>Previously uploaded security scans</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <EmptyState text="Loading scan history..." />
+      ) : error ? (
+        <ErrorBanner
+          message={`Could not load scan history: ${error.message}`}
+        />
+      ) : ordered.length === 0 ? (
+        <div className="scan-history-empty">
+          <EmptyState text="No previous scans. Upload a scan to begin building your scan history." />
+          <button
+            className="new-scan-button"
+            onClick={() => onNavigate("New Scan")}
+          >
+            <Plus size={15} />
+            New Scan
+          </button>
+        </div>
+      ) : (
+        <div className="scan-history-list">
+          <div className="scan-history-header">
+            <span>Filename</span>
+            <span>Scanner</span>
+            <span>Status</span>
+            <span></span>
+          </div>
+
+          {ordered.map((item) => (
+            <button
+              key={item.scan_id}
+              type="button"
+              className={`scan-history-row ${
+                item.scan_id === scan.scanId ? "active" : ""
+              }`}
+              onClick={() => handleSelect(item.scan_id)}
+              disabled={selectingId === item.scan_id}
+            >
+              <div className="scan-history-filename">
+                <strong>{item.filename}</strong>
+                <small>{item.scan_id.slice(0, 8)}</small>
+              </div>
+              <span>{scannerDisplayName(item.scanner)}</span>
+              <ScanStatusBadge status={item.status} />
+              {selectingId === item.scan_id ? (
+                <span className="scan-history-loading">Loading…</span>
+              ) : (
+                <ChevronRight size={16} />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScanStatusBadge({ status }) {
+  const cls = status ? status.toLowerCase() : "unknown";
+  return (
+    <span className={`status scan-status-${cls}`}>{status || "UNKNOWN"}</span>
+  );
+}
+
+/* =========================
    FINDINGS PAGE
 ========================= */
 
@@ -1303,19 +1446,22 @@ function PrioritizedRisks({ scan }) {
    REPORTS
 ========================= */
 
+/**
+ * "Give me a structured report of this scan" -- entirely driven by
+ * the backend's GET /scans/{scan_id}/report (ScanReport), fetched on
+ * demand into local state and rendered as-is. Nothing here reads
+ * live scan.findings/scan.priorityById: the point of a report is a
+ * point-in-time snapshot from the backend's own report_service, not
+ * a re-derivation from whatever the client happens to have cached.
+ *
+ * critical/high counts are the one exception -- they are not fields
+ * on ScanReport, but they are computed only from that same fetched
+ * report's own findings[], never from separate live state.
+ */
 function ReportsPage({ scan }) {
   const hasScan = Boolean(scan.scanId);
-  const priorities = Object.values(scan.priorityById);
-  const criticalCount = priorities.filter((p) => p.priority === "CRITICAL").length;
-  const highCount = priorities.filter((p) => p.priority === "HIGH").length;
 
-  const topFindings = [...priorities]
-    .sort((a, b) => {
-      const order = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"];
-      return order.indexOf(a.priority) - order.indexOf(b.priority);
-    })
-    .slice(0, 8);
-
+  const [report, setReport] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
 
@@ -1326,19 +1472,8 @@ function ReportsPage({ scan }) {
     setGenerateError(null);
 
     try {
-      const report = await getScanReport(scan.scanId);
-      const blob = new Blob(
-        [JSON.stringify(report, null, 2)],
-        { type: "application/json" }
-      );
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `vulnverify-report-${scan.scanId}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const result = await getScanReport(scan.scanId);
+      setReport(result);
     } catch (err) {
       setGenerateError(err.message);
     } finally {
@@ -1346,21 +1481,59 @@ function ReportsPage({ scan }) {
     }
   };
 
+  const handleDownload = () => {
+    if (!report) return;
+
+    const blob = new Blob([JSON.stringify(report, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `vulnverify-report-${report.scan_id}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const criticalCount = report
+    ? report.findings.filter((f) => f.priority === "CRITICAL").length
+    : 0;
+  const highCount = report
+    ? report.findings.filter((f) => f.priority === "HIGH").length
+    : 0;
+
   return (
     <div className="reports-page">
-      <div className="page-description">
+      <div className="page-description reports-header">
         <div>
           <h2>Security Reports</h2>
           <p>Generate and review verified security scan reports.</p>
         </div>
-        <button
-          className="new-scan-button"
-          onClick={handleGenerateReport}
-          disabled={!hasScan || generating}
-        >
-          <Download size={15} />
-          {generating ? "Generating..." : "Generate Report"}
-        </button>
+
+        {hasScan && (
+          <div className="report-actions">
+            <button
+              className="new-scan-button"
+              onClick={handleGenerateReport}
+              disabled={generating}
+            >
+              <FileText size={15} />
+              {generating
+                ? "Generating..."
+                : report
+                ? "Regenerate Report"
+                : "Generate Report"}
+            </button>
+            {report && (
+              <button className="view-button" onClick={handleDownload}>
+                <Download size={14} />
+                Download JSON
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {generateError && (
@@ -1370,54 +1543,104 @@ function ReportsPage({ scan }) {
       )}
 
       {!hasScan ? (
-        <EmptyState text="No scan uploaded yet." />
+        <EmptyState text="No scan loaded. Upload a scan to generate a security report." />
+      ) : !report ? (
+        <EmptyState
+          text={
+            generating
+              ? "Generating report..."
+              : 'Click "Generate Report" to build a structured report for this scan.'
+          }
+        />
       ) : (
         <>
-          <div className="report-summary">
-            <div className="summary-card">
-              <span>Scan</span>
-              <strong>{scan.scanMeta.filename}</strong>
+          <section className="panel report-summary-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Scan Summary</h3>
+                <p>Generated {new Date(report.generated_at).toLocaleString()}</p>
+              </div>
             </div>
-            <div className="summary-card">
-              <span>Total Findings</span>
-              <strong>{scan.findings.length}</strong>
-            </div>
-            <div className="summary-card">
-              <span>Critical</span>
-              <strong>{criticalCount}</strong>
-            </div>
-            <div className="summary-card">
-              <span>High</span>
-              <strong>{highCount}</strong>
-            </div>
-          </div>
 
-          <div className="report-panel">
-            <h3>Verified Security Report</h3>
-            <p>
-              Top prioritized findings from this scan, based on real
-              verification results.
-            </p>
+            <div className="evaluation-details-grid">
+              <div>
+                <span>Scan</span>
+                <strong>{report.filename}</strong>
+              </div>
+              <div>
+                <span>Scanner</span>
+                <strong>{scannerDisplayName(report.scanner)}</strong>
+              </div>
+              <div>
+                <span>Total findings</span>
+                <strong>{report.raw_finding_count}</strong>
+              </div>
+              <div>
+                <span>Verified findings</span>
+                <strong>{report.verified_count}</strong>
+              </div>
+              <div>
+                <span>Unique vulnerabilities</span>
+                <strong>{report.unique_vulnerability_count}</strong>
+              </div>
+              <div>
+                <span>Critical findings</span>
+                <strong>{criticalCount}</strong>
+              </div>
+              <div>
+                <span>High findings</span>
+                <strong>{highCount}</strong>
+              </div>
+            </div>
+          </section>
 
-            {topFindings.length === 0 ? (
-              <EmptyState text="No findings verified yet." />
+          <section className="panel risks-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Verified Security Report</h3>
+                <p>Every finding in this report, with its verification result</p>
+              </div>
+            </div>
+
+            {report.findings.length === 0 ? (
+              <EmptyState text="This scan produced no findings." />
             ) : (
-              topFindings.map((p) => {
-                const finding = scan.findings.find(
-                  (f) => f.finding_id === p.finding_id
-                );
-                return (
-                  <div className="report-row" key={p.finding_id}>
-                    <span>
-                      {finding?.source?.original_name ||
-                        finding?.vulnerability?.category}
+              <div className="risk-table">
+                <div className="risk-header">
+                  <span>RANK</span>
+                  <span>VULNERABILITY</span>
+                  <span>STATUS</span>
+                  <span>SEVERITY</span>
+                  <span>PRIORITY</span>
+                  <span></span>
+                </div>
+
+                {report.findings.map((finding, index) => (
+                  <div className="risk-row" key={finding.finding_id}>
+                    <span className="rank">
+                      {String(index + 1).padStart(2, "0")}
                     </span>
-                    <strong>{p.priority}</strong>
+                    <div className="vulnerability">
+                      <strong>{finding.original_name || finding.category}</strong>
+                      <small>{finding.normalized_url}</small>
+                    </div>
+                    <StatusBadge status={finding.verification_status} />
+                    <span>{finding.scanner_severity}</span>
+                    {finding.priority ? (
+                      <span
+                        className={`priority ${priorityClassName(finding.priority)}`}
+                      >
+                        {finding.priority}
+                      </span>
+                    ) : (
+                      <span className="priority unverified">NOT VERIFIED</span>
+                    )}
+                    <span></span>
                   </div>
-                );
-              })
+                ))}
+              </div>
             )}
-          </div>
+          </section>
         </>
       )}
     </div>
