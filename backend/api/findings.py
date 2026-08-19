@@ -47,6 +47,7 @@ from backend.verification.csrf_origin import (
 )
 from backend.verification.csrf_state import (
     CsrfStateObservation,
+    has_strong_acceptance_evidence,
 )
 from backend.verification.sqli_error_signatures import (
     find_database_error_matches,
@@ -276,7 +277,7 @@ def _verify_csrf_finding(
 
         state_changing_endpoint=(
             _infer_state_changing_endpoint(
-                finding.request.method
+                finding
             )
         ),
 
@@ -316,8 +317,24 @@ def _verify_csrf_finding(
         insufficient_scanner_data=False,
         nondeterministic_result=False,
 
+        # Only downgrade to "weaker provenance" when this candidate
+        # has NOT already produced independent, deterministic
+        # acceptance evidence during this replay (see
+        # has_strong_acceptance_evidence and the docstring on
+        # _is_har_derived_csrf_candidate below). Without this guard,
+        # csrf.py's classifier short-circuits to FALSE_POSITIVE
+        # whenever scanner_related_signal_only is True, before it
+        # ever evaluates the TRUE_POSITIVE conditions -- which would
+        # make TRUE_POSITIVE unreachable for a HAR-derived candidate
+        # no matter what evidence a caller supplies. The classifier
+        # itself (backend/verification/csrf.py) is unchanged; this is
+        # strictly about when the orchestration layer applies the
+        # flag it already defined.
         scanner_related_signal_only=(
             _is_har_derived_csrf_candidate(finding)
+            and not has_strong_acceptance_evidence(
+                state_observation
+            )
         ),
 
         verification_confidence=(
@@ -353,9 +370,14 @@ def _is_har_derived_csrf_candidate(
     Traffic-derived candidates are weaker evidence than an explicit
     scanner alert -- no scanner ever asserted "this is CSRF," only
     that a tokenless form and a structurally matching request exist.
-    scanner_related_signal_only tells the existing, unmodified CSRF
-    classifier to require independent replay evidence rather than
-    ever treating this candidate's mere existence as sufficient.
+    The caller combines this with has_strong_acceptance_evidence(...)
+    before passing scanner_related_signal_only to the existing,
+    unmodified CSRF classifier: the mere fact of being HAR-derived is
+    never, by itself, sufficient reason to accept the finding, but it
+    also must not make TRUE_POSITIVE permanently unreachable once
+    genuine independent replay evidence (a deterministic acceptance
+    indicator that actually matched the live response) has been
+    collected.
     """
 
     return (
@@ -650,17 +672,39 @@ def _controlled_rejection_is_attributable(
 
 
 def _infer_state_changing_endpoint(
-    method: str,
+    finding,
 ) -> bool | None:
     """
     Unsafe HTTP methods provide evidence that the endpoint is
     intended for state-changing behavior.
 
-    GET/HEAD are not automatically labelled non-state-changing,
-    because applications can misuse them.
+    GET/HEAD are not automatically labelled state-changing OR
+    non-state-changing in general -- the overwhelming majority of
+    GET/HEAD requests are read-only, so guessing True from the method
+    alone would be exactly the "broadly treat all GET as
+    state-changing" shortcut this must not become. They remain
+    unknown (None) with one narrow, evidence-backed exception: a
+    GET/HEAD request that the HAR structural CSRF candidate detector
+    (backend/verification/csrf_candidate_detection.py, via
+    backend/parsers/zap_har.py) independently matched to a real,
+    tokenless HTML <form> on the target -- i.e. the target
+    application's own markup declares this exact request as that
+    form's intended submission, with the same method and
+    corresponding field names. That is pre-replay, structural
+    evidence of what the endpoint is for, derived from the page
+    itself rather than guessed from the request in isolation, and it
+    is unrelated to (and does not substitute for) any of the other
+    seven independent TRUE_POSITIVE conditions in
+    backend/verification/csrf.py, which are all still evaluated
+    exactly as before: an unauthenticated, non-reproducible, or
+    rejected replay of a matched GET form still cannot reach
+    TRUE_POSITIVE. Findings from any other source (a scanner alert, a
+    hand-built finding, or any GET/HEAD request with no such
+    structural corroboration) are completely unaffected and still
+    receive None here, exactly as before this change.
     """
 
-    method_name = method.upper()
+    method_name = finding.request.method.upper()
 
     if method_name in {
         "POST",
@@ -668,6 +712,12 @@ def _infer_state_changing_endpoint(
         "PATCH",
         "DELETE",
     }:
+        return True
+
+    if (
+        method_name in {"GET", "HEAD"}
+        and _is_har_derived_csrf_candidate(finding)
+    ):
         return True
 
     return None
