@@ -957,17 +957,34 @@ function EnrichmentDetails({ enrichment }) {
 ========================= */
 
 function VerifyForm({ family, finding, verifying, error, onSubmit }) {
+  const [sqliSubtype, setSqliSubtype] = useState("time_based");
   const [baselineValue, setBaselineValue] = useState("");
   const [stateIndicator, setStateIndicator] = useState("");
   const [payload1, setPayload1] = useState("");
   const [payload2, setPayload2] = useState("");
   const [localError, setLocalError] = useState(null);
 
+  const handleSqliSubtypeChange = (e) => {
+    // Reset baseline value + any stale error when switching subtypes
+    // so a value/error left over from one subtype can never be
+    // retained into (or block submission of) the other.
+    setSqliSubtype(e.target.value);
+    setBaselineValue("");
+    setLocalError(null);
+  };
+
   const submit = (e) => {
     e.preventDefault();
     setLocalError(null);
 
     if (family === "sqli") {
+      if (sqliSubtype === "error_based") {
+        onSubmit({
+          sqli: { error_based: {} },
+        });
+        return;
+      }
+
       if (!baselineValue.trim()) {
         setLocalError("Baseline parameter value is required.");
         return;
@@ -1018,15 +1035,30 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
   return (
     <form className="verify-form" onSubmit={submit}>
       {family === "sqli" && (
-        <div className="form-field">
-          <label>Baseline parameter value (pre-injection value)</label>
-          <input
-            type="text"
-            value={baselineValue}
-            onChange={(e) => setBaselineValue(e.target.value)}
-            placeholder={`e.g. the original value of "${finding.target.parameter || "id"}"`}
-          />
-        </div>
+        <>
+          <div className="form-field">
+            <label>SQLi verification technique</label>
+            <select
+              value={sqliSubtype}
+              onChange={handleSqliSubtypeChange}
+            >
+              <option value="time_based">TIME_BASED</option>
+              <option value="error_based">ERROR_BASED</option>
+            </select>
+          </div>
+
+          {sqliSubtype === "time_based" && (
+            <div className="form-field">
+              <label>Baseline parameter value (pre-injection value)</label>
+              <input
+                type="text"
+                value={baselineValue}
+                onChange={(e) => setBaselineValue(e.target.value)}
+                placeholder={`e.g. the original value of "${finding.target.parameter || "id"}"`}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {family === "csrf" && (
