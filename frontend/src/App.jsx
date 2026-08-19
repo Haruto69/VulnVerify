@@ -1195,6 +1195,13 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
   const [payload2, setPayload2] = useState("");
   const [localError, setLocalError] = useState(null);
 
+  const [defenseTestEnabled, setDefenseTestEnabled] = useState(false);
+  const [defenseName, setDefenseName] = useState("");
+  const [defenseLocation, setDefenseLocation] = useState("BODY");
+
+  const [originTestEnabled, setOriginTestEnabled] = useState(false);
+  const [originMutation, setOriginMutation] = useState("BOTH");
+
   const handleSqliSubtypeChange = (e) => {
     // Reset baseline value + any stale error when switching subtypes
     // so a value/error left over from one subtype can never be
@@ -1233,13 +1240,32 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
         );
         return;
       }
-      onSubmit({
-        csrf: {
-          state_check: {
-            deterministic_acceptance_indicator: stateIndicator,
-          },
+
+      if (defenseTestEnabled && !defenseName.trim()) {
+        setLocalError(
+          "The CSRF token/header field name is required when the defense test is enabled."
+        );
+        return;
+      }
+
+      const csrf = {
+        state_check: {
+          deterministic_acceptance_indicator: stateIndicator.trim(),
         },
-      });
+      };
+
+      if (defenseTestEnabled) {
+        csrf.defense_test = {
+          name: defenseName.trim(),
+          location: defenseLocation,
+        };
+      }
+
+      if (originTestEnabled) {
+        csrf.origin_test = { mutation: originMutation };
+      }
+
+      onSubmit({ csrf });
       return;
     }
 
@@ -1312,6 +1338,80 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
             onChange={(e) => setStateIndicator(e.target.value)}
             placeholder='Exact success text, e.g. "Password Changed."'
           />
+
+          <label className="form-field-checkbox">
+            <input
+              type="checkbox"
+              checked={defenseTestEnabled}
+              onChange={(e) => setDefenseTestEnabled(e.target.checked)}
+            />
+            Also test a known CSRF token / custom header defense
+          </label>
+          <p className="form-field-help">
+            Only enable this if the target application declares a
+            specific anti-CSRF token or custom header field (e.g. a
+            hidden <code>csrf_token</code> form field). The backend
+            replays the request twice — once unchanged, once with this
+            field removed — to check whether removing it causes a
+            rejection. Leave this off for a tokenless form (like DVWA's
+            Low-security CSRF page), where there is no such field to
+            test.
+          </p>
+          {defenseTestEnabled && (
+            <div className="form-subfields">
+              <div className="form-field">
+                <label>CSRF token / header field name</label>
+                <input
+                  type="text"
+                  value={defenseName}
+                  onChange={(e) => setDefenseName(e.target.value)}
+                  placeholder="e.g. csrf_token"
+                />
+              </div>
+              <div className="form-field">
+                <label>Field location</label>
+                <select
+                  value={defenseLocation}
+                  onChange={(e) => setDefenseLocation(e.target.value)}
+                >
+                  <option value="BODY">BODY</option>
+                  <option value="QUERY">QUERY</option>
+                  <option value="HEADER">HEADER</option>
+                </select>
+              </div>
+            </div>
+          )}
+
+          <label className="form-field-checkbox">
+            <input
+              type="checkbox"
+              checked={originTestEnabled}
+              onChange={(e) => setOriginTestEnabled(e.target.checked)}
+            />
+            Also test cross-site Origin/Referer enforcement
+          </label>
+          <p className="form-field-help">
+            Replays the request once unchanged and once with a
+            controlled, attacker-style Origin and/or Referer header, to
+            check whether the application relies on Origin/Referer
+            checks to reject cross-site requests. Session/authentication
+            data is preserved in both replays.
+          </p>
+          {originTestEnabled && (
+            <div className="form-subfields">
+              <div className="form-field">
+                <label>Mutate</label>
+                <select
+                  value={originMutation}
+                  onChange={(e) => setOriginMutation(e.target.value)}
+                >
+                  <option value="BOTH">Origin and Referer</option>
+                  <option value="ORIGIN">Origin only</option>
+                  <option value="REFERER">Referer only</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

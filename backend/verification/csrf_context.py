@@ -27,6 +27,7 @@ def build_csrf_verification_context(
     defense_observation: CsrfDefenseObservation | None = None,
     origin_observation: CsrfOriginObservation | None = None,
     browser_observation: CsrfBrowserObservation | None = None,
+    reproducibility_replay_result: ReplayResult | None = None,
     state_changing_endpoint: bool | None = None,
     forged_request_is_plausible_under_threat_model: bool | None = None,
     effective_csrf_defense_absent_or_bypassable: bool | None = None,
@@ -68,6 +69,12 @@ def build_csrf_verification_context(
     session_unavailable = _session_unavailable(
         finding=finding,
         replay_result=replay_result,
+    ) or (
+        reproducibility_replay_result is not None
+        and _session_unavailable(
+            finding=finding,
+            replay_result=reproducibility_replay_result,
+        )
     )
 
     target_unavailable = _target_unavailable(
@@ -182,6 +189,25 @@ def _session_unavailable(
     finding: NormalizedFinding,
     replay_result: ReplayResult,
 ) -> bool:
+    """
+    True when the finding depends on an authenticated/session
+    context and the baseline replay's own response status is
+    structural evidence that the session was not accepted -- either
+    an explicit 401, or a redirect (3xx), which is how most
+    session-authenticated applications (DVWA included) send an
+    unauthenticated request to a login page rather than rejecting it
+    outright.
+
+    This is deliberately status-code-only: it never inspects the
+    response body for a target-specific string like "please log in",
+    which would be a guess about one application's wording rather
+    than a portable, structural signal. A stale/expired session
+    replay is therefore reported as INCONCLUSIVE (this flag feeds
+    authentication_or_session_unavailable, checked before any
+    FALSE_POSITIVE reason) instead of being misread as a scanner
+    signal that failed to reproduce.
+    """
+
     auth_required = (
         finding.context.authentication_required == "YES"
         or finding.context.session_required == "YES"
@@ -192,7 +218,13 @@ def _session_unavailable(
 
     status = replay_result.replay.response.status
 
-    return status == 401
+    if status is None:
+        return False
+
+    if status == 401:
+        return True
+
+    return 300 <= status < 400
 
 
 def _target_unavailable(

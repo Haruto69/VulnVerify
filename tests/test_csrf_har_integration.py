@@ -16,11 +16,17 @@ Covers:
      FALSE_POSITIVE instead.
 """
 
+import json
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
-from backend.api.findings import _is_har_derived_csrf_candidate
+from backend.api.findings import (
+    _derive_defense_absence,
+    _forged_request_is_plausible,
+    _infer_state_changing_endpoint,
+    _is_har_derived_csrf_candidate,
+)
 from backend.main import app
 from backend.models.normalized_finding import NormalizedFinding
 from backend.models.replay_result import (
@@ -30,13 +36,19 @@ from backend.models.replay_result import (
     ReplayResult,
 )
 from backend.models.verified_finding import VerifiedFinding
+from backend.parsers.zap_har import parse_har_report
+from backend.replay.csrf import CsrfOriginMutation, CsrfOriginReplayResult
 from backend.services.pipeline_service import verify_csrf_finding
 from backend.storage.repository import (
     normalized_findings,
     scans,
     verified_findings,
 )
-from backend.verification.csrf_state import CsrfStateObservation
+from backend.verification.csrf_origin import evaluate_csrf_origin_policy
+from backend.verification.csrf_state import (
+    CsrfStateObservation,
+    has_strong_acceptance_evidence,
+)
 
 client = TestClient(app)
 
@@ -660,4 +672,479 @@ def test_real_dvwa_fixture_get_finding_now_inferred_state_changing(
     assert (
         captured_kwargs["forged_request_is_plausible_under_threat_model"]
         is True
+    )
+
+
+# ---------------------------------------------------------------------
+# R: with a matched deterministic acceptance indicator AND independent
+# Origin/Referer defense-absence evidence, the real DVWA CSRF HAR
+# fixture reaches the existing, unmodified TRUE_POSITIVE rule.
+#
+# reproducible is supplied directly by the caller here (True), exactly
+# as every other TRUE_POSITIVE proof test in this file already does --
+# see test_har_candidate_can_reach_true_positive_with_independent_
+# evidence above. This test proves the classifier's TRUE_POSITIVE
+# rule accepts real evidence in isolation. A separate test further
+# below (test_verify_endpoint_reaches_true_positive_end_to_end) proves
+# the same outcome is now also reachable through the real, unmodified
+# /verify HTTP endpoint, now that
+# backend/api/findings.py::_evaluate_csrf_reproducibility replaces the
+# previous hardcoded reproducible=None with a real second-replay check.
+# ---------------------------------------------------------------------
+
+
+def _real_dvwa_har_finding() -> NormalizedFinding:
+    with open(HAR_CSRF_REPORT, encoding="utf-8") as f:
+        report = json.load(f)
+
+    return parse_har_report(report, scan_id="scan-dvwa-csrf")[0]
+
+
+def test_real_dvwa_fixture_reaches_true_positive_with_defense_and_state_evidence():
+    verified_findings.clear()
+
+    finding = _real_dvwa_har_finding()
+    assert finding.request.method == "GET"
+
+    replay_result = ReplayResult(
+        finding_id=finding.finding_id,
+        replay=ReplayExecution(
+            executed=True,
+            timestamp=datetime.now(timezone.utc),
+            request=ReplayRequest(
+                method="GET",
+                url=finding.request.url,
+                headers=dict(finding.request.headers),
+                body=None,
+            ),
+            response=ReplayResponse(
+                status=200,
+                headers={},
+                body="<pre>Password Changed.</pre>",
+            ),
+        ),
+        observations=[],
+        errors=[],
+    )
+
+    state_observation = CsrfStateObservation(
+        deterministic_acceptance_indicator="Password Changed.",
+        deterministic_acceptance_indicator_matched=True,
+        observation_method="response_indicator",
+    )
+
+    # DVWA's Low-security CSRF page enforces no Origin/Referer check
+    # at all -- a controlled cross-site replay is accepted, not
+    # rejected, which is genuine (unmodified backend/verification/
+    # csrf_origin.py) evidence of defense absence.
+    origin_observation = evaluate_csrf_origin_policy(
+        replay_result=CsrfOriginReplayResult(
+            original_replay=replay_result,
+            modified_replay=replay_result,
+            mutation=CsrfOriginMutation.BOTH,
+            attacker_origin="https://attacker.example",
+            attacker_referer="https://attacker.example/csrf-test",
+            rejection_observed=False,
+            rejection_status=200,
+        ),
+        rejection_attributable_to_origin_policy=False,
+    )
+
+    strong_acceptance = has_strong_acceptance_evidence(
+        state_observation
+    )
+    scanner_related_signal_only = (
+        _is_har_derived_csrf_candidate(finding)
+        and not strong_acceptance
+    )
+
+    assert strong_acceptance is True
+    assert scanner_related_signal_only is False
+
+    result = verify_csrf_finding(
+        finding=finding,
+        replay_result=replay_result,
+        state_observation=state_observation,
+        origin_observation=origin_observation,
+        state_changing_endpoint=_infer_state_changing_endpoint(
+            finding
+        ),
+        forged_request_is_plausible_under_threat_model=(
+            _forged_request_is_plausible(finding)
+        ),
+        effective_csrf_defense_absent_or_bypassable=(
+            _derive_defense_absence(
+                defense_observation=None,
+                origin_observation=origin_observation,
+            )
+        ),
+        request_accepted=True,
+        reproducible=True,
+        evidence_saved=True,
+        scanner_related_signal_only=scanner_related_signal_only,
+        verification_confidence=0.9,
+    )
+
+    assert result.classification.status == "TRUE_POSITIVE"
+
+
+# ---------------------------------------------------------------------
+# S: the new frontend-facing origin_test wiring is actually consumed
+# by the real /verify endpoint and reaches
+# effective_csrf_defense_absent_or_bypassable=True end-to-end.
+# ---------------------------------------------------------------------
+
+
+def test_verify_endpoint_wires_origin_test_into_defense_absence(
+    monkeypatch,
+):
+    scan_id = _upload_har_fixture()
+
+    findings_response = client.get(
+        f"/api/v1/scans/{scan_id}/findings"
+    )
+    finding_id = findings_response.json()["findings"][0]["finding_id"]
+
+    def fake_replay_finding(**kwargs):
+        return make_replay(status=200)
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_finding",
+        fake_replay_finding,
+    )
+
+    def fake_origin_replay(
+        finding_id,
+        request,
+        mutation,
+        timeout_seconds,
+    ):
+        baseline = make_replay(status=200)
+        return CsrfOriginReplayResult(
+            original_replay=baseline,
+            modified_replay=baseline,
+            mutation=mutation,
+            attacker_origin="https://attacker.example",
+            attacker_referer=None,
+            rejection_observed=False,
+            rejection_status=200,
+        )
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_with_cross_site_origin",
+        fake_origin_replay,
+    )
+
+    captured_kwargs = {}
+
+    def capture_and_delegate(**kwargs):
+        captured_kwargs.update(kwargs)
+        return VerifiedFinding(
+            finding_id=finding_id,
+            classification={
+                "status": "INCONCLUSIVE",
+                "confidence": 0.1,
+                "reason": "stubbed for test introspection",
+            },
+            evidence={
+                "indicators": [],
+                "request_reference": None,
+                "response_reference": None,
+            },
+            verification_method="csrf_rule_v1",
+        )
+
+    monkeypatch.setattr(
+        "backend.api.findings.verify_csrf_finding",
+        capture_and_delegate,
+    )
+
+    response = client.post(
+        f"/api/v1/scans/{scan_id}/findings/{finding_id}/verify",
+        json={
+            "csrf": {
+                "state_check": {
+                    "deterministic_acceptance_indicator": (
+                        "Password Changed."
+                    )
+                },
+                "origin_test": {"mutation": "ORIGIN"},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        captured_kwargs["effective_csrf_defense_absent_or_bypassable"]
+        is True
+    )
+
+
+# ---------------------------------------------------------------------
+# T: a stale/expired session on a HAR-derived candidate's baseline
+# replay is reported as INCONCLUSIVE, never FALSE_POSITIVE. Before
+# this behavior existed, an unmatched indicator alone was enough to
+# set scanner_related_signal_only=True and misclassify a stale-session
+# replay as FALSE_POSITIVE, even though nothing about the replay
+# actually demonstrated the finding was safe.
+# ---------------------------------------------------------------------
+
+
+def test_stale_session_redirect_is_inconclusive_not_false_positive():
+    verified_findings.clear()
+
+    finding = _real_dvwa_har_finding()
+
+    # The captured session cookie is no longer valid: DVWA redirects
+    # an unauthenticated GET to its login page instead of returning
+    # the password-change confirmation.
+    replay_result = ReplayResult(
+        finding_id=finding.finding_id,
+        replay=ReplayExecution(
+            executed=True,
+            timestamp=datetime.now(timezone.utc),
+            request=ReplayRequest(
+                method="GET",
+                url=finding.request.url,
+                headers=dict(finding.request.headers),
+                body=None,
+            ),
+            response=ReplayResponse(
+                status=302,
+                headers={"location": "/DVWA/login.php"},
+                body=None,
+            ),
+        ),
+        observations=[],
+        errors=[],
+    )
+
+    state_observation = CsrfStateObservation(
+        deterministic_acceptance_indicator="Password Changed.",
+        deterministic_acceptance_indicator_matched=False,
+        observation_method="response_indicator",
+    )
+
+    scanner_related_signal_only = (
+        _is_har_derived_csrf_candidate(finding)
+        and not has_strong_acceptance_evidence(state_observation)
+    )
+    assert scanner_related_signal_only is True
+
+    result = verify_csrf_finding(
+        finding=finding,
+        replay_result=replay_result,
+        state_observation=state_observation,
+        state_changing_endpoint=_infer_state_changing_endpoint(
+            finding
+        ),
+        forged_request_is_plausible_under_threat_model=(
+            _forged_request_is_plausible(finding)
+        ),
+        request_accepted=None,
+        reproducible=None,
+        evidence_saved=True,
+        scanner_related_signal_only=scanner_related_signal_only,
+        verification_confidence=0.2,
+    )
+
+    assert result.classification.status == "INCONCLUSIVE"
+    assert (
+        "Authentication or session context"
+        in result.classification.reason
+    )
+
+
+# ---------------------------------------------------------------------
+# U: the real, unmodified /verify HTTP endpoint -- the actual
+# frontend/API path, not a direct pipeline_service call -- can now
+# reach TRUE_POSITIVE for the real DVWA CSRF HAR fixture. This is the
+# concrete proof that backend/api/findings.py no longer hardcodes
+# reproducible=None: _evaluate_csrf_reproducibility performs a second,
+# independent replay_finding() call (the same replay infrastructure
+# used everywhere else), and both attempts agreeing on the matched
+# indicator is what supplies reproducible=True here.
+# ---------------------------------------------------------------------
+
+
+def _replay_with(status: int | None, body: str | None) -> ReplayResult:
+    return ReplayResult(
+        finding_id="csrf-001",
+        replay=ReplayExecution(
+            executed=True,
+            timestamp=datetime.now(timezone.utc),
+            request=ReplayRequest(
+                method="GET",
+                url="http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+                headers={},
+                body=None,
+            ),
+            response=ReplayResponse(
+                status=status,
+                headers={},
+                body=body,
+            ),
+        ),
+        observations=[],
+        errors=[],
+    )
+
+
+def _matching_replay(**_kwargs) -> ReplayResult:
+    return _replay_with(200, "<pre>Password Changed.</pre>")
+
+
+def test_verify_endpoint_reaches_true_positive_end_to_end(monkeypatch):
+    scan_id = _upload_har_fixture()
+
+    findings_response = client.get(
+        f"/api/v1/scans/{scan_id}/findings"
+    )
+    finding_id = findings_response.json()["findings"][0]["finding_id"]
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_finding",
+        _matching_replay,
+    )
+
+    def fake_origin_replay(
+        finding_id,
+        request,
+        mutation,
+        timeout_seconds,
+    ):
+        baseline = _matching_replay()
+        return CsrfOriginReplayResult(
+            original_replay=baseline,
+            modified_replay=baseline,
+            mutation=mutation,
+            attacker_origin="https://attacker.example",
+            attacker_referer="https://attacker.example/csrf-test",
+            rejection_observed=False,
+            rejection_status=200,
+        )
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_with_cross_site_origin",
+        fake_origin_replay,
+    )
+
+    response = client.post(
+        f"/api/v1/scans/{scan_id}/findings/{finding_id}/verify",
+        json={
+            "csrf": {
+                "state_check": {
+                    "deterministic_acceptance_indicator": (
+                        "Password Changed."
+                    )
+                },
+                "origin_test": {"mutation": "BOTH"},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["classification"]["status"] == "TRUE_POSITIVE"
+
+
+# ---------------------------------------------------------------------
+# V: a stale/expired session on the real /verify endpoint (baseline
+# replay redirects to a login page) is reported as INCONCLUSIVE, never
+# FALSE_POSITIVE -- exercised through the actual HTTP path this time,
+# not a direct pipeline_service call.
+# ---------------------------------------------------------------------
+
+
+def test_verify_endpoint_stale_session_is_inconclusive(monkeypatch):
+    scan_id = _upload_har_fixture()
+
+    findings_response = client.get(
+        f"/api/v1/scans/{scan_id}/findings"
+    )
+    finding_id = findings_response.json()["findings"][0]["finding_id"]
+
+    def redirect_replay(**_kwargs) -> ReplayResult:
+        return _replay_with(302, None)
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_finding",
+        redirect_replay,
+    )
+
+    response = client.post(
+        f"/api/v1/scans/{scan_id}/findings/{finding_id}/verify",
+        json={
+            "csrf": {
+                "state_check": {
+                    "deterministic_acceptance_indicator": (
+                        "Password Changed."
+                    )
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["classification"]["status"] == "INCONCLUSIVE"
+    assert data["classification"]["status"] != "FALSE_POSITIVE"
+
+
+# ---------------------------------------------------------------------
+# W: a single successful replay must not, by itself, be treated as
+# proof of reproducibility. When a second, independent replay
+# disagrees with the first (one matches the indicator, the other
+# doesn't), the endpoint must not fabricate reproducible=True or
+# guess which attempt was correct -- it reports INCONCLUSIVE via the
+# existing (previously unwired) nondeterministic_result flag.
+# ---------------------------------------------------------------------
+
+
+def test_verify_endpoint_disagreeing_replays_do_not_fabricate_reproducibility(
+    monkeypatch,
+):
+    scan_id = _upload_har_fixture()
+
+    findings_response = client.get(
+        f"/api/v1/scans/{scan_id}/findings"
+    )
+    finding_id = findings_response.json()["findings"][0]["finding_id"]
+
+    call_count = {"n": 0}
+
+    def flaky_replay(**_kwargs) -> ReplayResult:
+        call_count["n"] += 1
+
+        if call_count["n"] == 1:
+            return _replay_with(200, "<pre>Password Changed.</pre>")
+
+        return _replay_with(200, "<pre>Nothing happened.</pre>")
+
+    monkeypatch.setattr(
+        "backend.api.findings.replay_finding",
+        flaky_replay,
+    )
+
+    response = client.post(
+        f"/api/v1/scans/{scan_id}/findings/{finding_id}/verify",
+        json={
+            "csrf": {
+                "state_check": {
+                    "deterministic_acceptance_indicator": (
+                        "Password Changed."
+                    )
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert call_count["n"] == 2
+    assert data["classification"]["status"] != "TRUE_POSITIVE"
+    assert data["classification"]["status"] == "INCONCLUSIVE"
+    assert (
+        "nondeterministic"
+        in data["classification"]["reason"].lower()
     )

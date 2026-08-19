@@ -221,6 +221,44 @@ def test_401_with_required_session_is_inconclusive_signal():
     )
 
 
+def test_redirect_with_required_session_is_inconclusive_signal():
+    # A 3xx redirect (e.g. to a login page) is the common way a
+    # session-authenticated application responds to a stale/expired
+    # session -- this must be treated the same as an explicit 401,
+    # not silently ignored.
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(
+            status=302
+        ),
+        state_observation=CsrfStateObservation(),
+        verification_confidence=0.20,
+    )
+
+    assert (
+        context.authentication_or_session_unavailable
+        is True
+    )
+
+
+def test_2xx_with_required_session_is_not_marked_unavailable():
+    # A plain success status must not be treated as a stale session --
+    # only 401 and 3xx are structural evidence of that.
+    context = build_csrf_verification_context(
+        finding=make_finding(),
+        replay_result=make_replay(
+            status=200
+        ),
+        state_observation=CsrfStateObservation(),
+        verification_confidence=0.20,
+    )
+
+    assert (
+        context.authentication_or_session_unavailable
+        is False
+    )
+
+
 def test_transport_failure_marks_target_unavailable():
     context = build_csrf_verification_context(
         finding=make_finding(),

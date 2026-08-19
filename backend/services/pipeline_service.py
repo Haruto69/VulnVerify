@@ -84,6 +84,9 @@ def verify_csrf_finding(
     browser_observation: (
         CsrfBrowserObservation | None
     ) = None,
+    reproducibility_replay_result: (
+        ReplayResult | None
+    ) = None,
     state_changing_endpoint: bool | None = None,
     forged_request_is_plausible_under_threat_model: (
         bool | None
@@ -122,6 +125,9 @@ def verify_csrf_finding(
         defense_observation=defense_observation,
         origin_observation=origin_observation,
         browser_observation=browser_observation,
+        reproducibility_replay_result=(
+            reproducibility_replay_result
+        ),
         state_changing_endpoint=state_changing_endpoint,
         forged_request_is_plausible_under_threat_model=(
             forged_request_is_plausible_under_threat_model

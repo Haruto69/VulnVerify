@@ -27,6 +27,7 @@ def finalize_csrf_verification(
     defense_observation: CsrfDefenseObservation | None = None,
     origin_observation: CsrfOriginObservation | None = None,
     browser_observation: CsrfBrowserObservation | None = None,
+    reproducibility_replay_result: ReplayResult | None = None,
     state_changing_endpoint: bool | None = None,
     forged_request_is_plausible_under_threat_model: bool | None = None,
     effective_csrf_defense_absent_or_bypassable: bool | None = None,
@@ -52,6 +53,9 @@ def finalize_csrf_verification(
         defense_observation=defense_observation,
         origin_observation=origin_observation,
         browser_observation=browser_observation,
+        reproducibility_replay_result=(
+            reproducibility_replay_result
+        ),
         state_changing_endpoint=state_changing_endpoint,
         forged_request_is_plausible_under_threat_model=(
             forged_request_is_plausible_under_threat_model

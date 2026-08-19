@@ -158,6 +158,16 @@ def _verify_csrf_finding(
         trigger=trigger,
     )
 
+    (
+        reproducible,
+        nondeterministic_result,
+        reproducibility_replay,
+    ) = _evaluate_csrf_reproducibility(
+        finding=finding,
+        trigger=trigger,
+        first_state_observation=state_observation,
+    )
+
     defense_observation = None
 
     if trigger.csrf.defense_test is not None:
@@ -274,6 +284,7 @@ def _verify_csrf_finding(
         state_observation=state_observation,
         defense_observation=defense_observation,
         origin_observation=origin_observation,
+        reproducibility_replay_result=reproducibility_replay,
 
         state_changing_endpoint=(
             _infer_state_changing_endpoint(
@@ -304,7 +315,8 @@ def _verify_csrf_finding(
             else None
         ),
 
-        reproducible=None,
+        reproducible=reproducible,
+        nondeterministic_result=nondeterministic_result,
 
         evidence_saved=True,
 
@@ -315,7 +327,6 @@ def _verify_csrf_finding(
 
         insufficient_request_context=False,
         insufficient_scanner_data=False,
-        nondeterministic_result=False,
 
         # Only downgrade to "weaker provenance" when this candidate
         # has NOT already produced independent, deterministic
@@ -595,6 +606,79 @@ def _find_normalized_finding(
             return finding
 
     return None
+
+
+def _evaluate_csrf_reproducibility(
+    finding,
+    trigger: VerificationTriggerRequest,
+    first_state_observation: CsrfStateObservation,
+):
+    """
+    Establish CSRF reproducibility from a second, independent replay
+    using the existing replay infrastructure (replay_finding) -- the
+    same repeated-trial principle backend/verification/
+    sqli_time_based.py already applies (it requires multiple
+    independent timing trials to agree before treating a delay as
+    reproducible). A single successful replay is never, by itself,
+    treated as proof of reproducibility.
+
+    Returns (reproducible, nondeterministic_result, second_replay):
+      - reproducible=True only when both replay attempts
+        independently observed the SAME deterministic acceptance
+        indicator match (both True).
+      - nondeterministic_result=True when the two attempts disagree
+        (one matched, the other did not). This wires the existing
+        CsrfVerificationContext.nondeterministic_result flag, which
+        previously had no producer, so a flaky/inconsistent replay
+        correctly routes to INCONCLUSIVE instead of being guessed
+        either way.
+      - reproducible stays None (never fabricated as True or False)
+        when there is no acceptance-indicator evidence to reproduce
+        at all (no state_check configured), or when both attempts
+        agree on "no match" -- that alone doesn't establish anything
+        about reproducibility; the existing TRUE_POSITIVE/
+        FALSE_POSITIVE conditions already handle a lack of acceptance
+        evidence without this flag's help.
+      - the second replay is always returned (even when reproducible
+        stays None) so build_csrf_verification_context can also treat
+        a stale session observed on THIS second attempt as
+        session-unavailable evidence, exactly like the first attempt.
+    """
+
+    state_config = trigger.csrf.state_check
+
+    if (
+        state_config is None
+        or state_config.deterministic_acceptance_indicator is None
+    ):
+        return None, False, None
+
+    second_replay = replay_finding(
+        finding=finding,
+        timeout_seconds=trigger.timeout_seconds,
+    )
+
+    second_state_observation = _build_state_observation(
+        replay_result=second_replay,
+        trigger=trigger,
+    )
+
+    first_matched = (
+        first_state_observation
+        .deterministic_acceptance_indicator_matched
+    )
+    second_matched = (
+        second_state_observation
+        .deterministic_acceptance_indicator_matched
+    )
+
+    if first_matched and second_matched:
+        return True, False, second_replay
+
+    if first_matched != second_matched:
+        return None, True, second_replay
+
+    return None, False, second_replay
 
 
 def _build_state_observation(
