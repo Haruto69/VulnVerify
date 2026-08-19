@@ -20,6 +20,7 @@ def replay_original_xss_request(
     subtype: XssSubtype,
     payload_variant_id: str = "scanner-original",
     timeout_seconds: float = 10.0,
+    session_cookie_override: str | None = None,
 ) -> XssReplayAttemptObservation:
     """
     Replay the scanner-captured XSS request without modifying its
@@ -34,7 +35,10 @@ def replay_original_xss_request(
             replay=None,
         )
 
-    replay_request = build_replay_request(finding)
+    replay_request = build_replay_request(
+        finding,
+        session_cookie_override=session_cookie_override,
+    )
 
     replay_result = execute_replay(
         finding_id=finding.finding_id,
@@ -53,6 +57,7 @@ def collect_reflected_xss_variant_attempts(
     finding: NormalizedFinding,
     payload_variants: list[tuple[str, str]],
     timeout_seconds: float = 10.0,
+    session_cookie_override: str | None = None,
 ) -> list[XssReplayAttemptObservation]:
     """
     Replay one HTTP request per (variant_id, payload) pair, mutating
@@ -69,6 +74,7 @@ def collect_reflected_xss_variant_attempts(
         request = build_reflected_xss_variant_request(
             finding=finding,
             payload=payload,
+            session_cookie_override=session_cookie_override,
         )
 
         replay_result = execute_replay(

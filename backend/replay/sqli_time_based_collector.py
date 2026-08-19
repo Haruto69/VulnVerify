@@ -68,6 +68,7 @@ def collect_time_based_replay_evidence(
     finding: NormalizedFinding,
     baseline_parameter_value: str,
     timeout_seconds: float = 10.0,
+    session_cookie_override: str | None = None,
 ) -> SqliTimeBasedReplayEvidence:
     """
     Collect baseline and verification timing evidence.
@@ -92,6 +93,7 @@ def collect_time_based_replay_evidence(
     ) = build_time_based_replay_requests(
         finding=finding,
         baseline_parameter_value=baseline_parameter_value,
+        session_cookie_override=session_cookie_override,
     )
 
     baseline_attempts = collect_timing_samples(

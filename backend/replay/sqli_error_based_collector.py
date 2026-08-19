@@ -56,6 +56,7 @@ def collect_error_based_replay_evidence(
     *,
     finding: NormalizedFinding,
     timeout_seconds: float = 10.0,
+    session_cookie_override: str | None = None,
 ) -> SqliErrorBasedReplayEvidence:
     """
     Collect baseline and verification response evidence for
@@ -95,6 +96,7 @@ def collect_error_based_replay_evidence(
         verification_request,
     ) = build_error_based_replay_requests(
         finding=finding,
+        session_cookie_override=session_cookie_override,
     )
 
     baseline_replays = tuple(

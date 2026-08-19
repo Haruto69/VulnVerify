@@ -51,16 +51,21 @@ from backend.verification.xss_observations import (
 def replay_finding(
     finding: NormalizedFinding,
     timeout_seconds: float = 10.0,
+    session_cookie_override: str | None = None,
 ) -> ReplayResult:
     """
     Replay a normalized finding using the generic replay pipeline.
 
     This function does not perform vulnerability-specific mutation
-    or TP/FP classification.
+    or TP/FP classification. session_cookie_override, when supplied,
+    is threaded straight through to build_replay_request (see
+    backend/replay/session_refresh.py for how it is obtained) --
+    everything else about the request is unchanged.
     """
 
     replay_request = build_replay_request(
-        finding
+        finding,
+        session_cookie_override=session_cookie_override,
     )
 
     return execute_replay(
