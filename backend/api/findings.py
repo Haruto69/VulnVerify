@@ -16,6 +16,9 @@ from backend.replay.csrf import (
 from backend.replay.request_builder import (
     build_replay_request,
 )
+from backend.replay.sqli_error_based_collector import (
+    collect_error_based_replay_evidence,
+)
 from backend.replay.sqli_time_based_collector import (
     collect_time_based_replay_evidence,
 )
@@ -25,6 +28,7 @@ from backend.replay.xss import (
 from backend.services.pipeline_service import (
     replay_finding,
     verify_csrf_finding,
+    verify_error_based_sqli_finding,
     verify_reflected_xss_finding,
     verify_time_based_sqli_finding,
 )
@@ -43,6 +47,9 @@ from backend.verification.csrf_origin import (
 )
 from backend.verification.csrf_state import (
     CsrfStateObservation,
+)
+from backend.verification.sqli_error_signatures import (
+    find_database_error_matches,
 )
 from backend.verification.xss_context import (
     XssSubtype,
@@ -68,10 +75,12 @@ async def verify_finding(
     trigger: VerificationTriggerRequest,
 ):
     """
-    Run configured CSRF, SQLi TIME_BASED, or REFLECTED XSS
-    verification checks for one normalized finding, dispatching on
-    which trigger family (trigger.csrf, trigger.sqli, or trigger.xss)
-    was supplied.
+    Run configured CSRF, SQLi (TIME_BASED or ERROR_BASED), or
+    REFLECTED XSS verification checks for one normalized finding,
+    dispatching on which trigger family (trigger.csrf, trigger.sqli,
+    or trigger.xss) was supplied, and -- for SQLi -- which subtype
+    (trigger.sqli.time_based or trigger.sqli.error_based) was
+    configured.
 
     The endpoint only derives conclusions that are supported by
     deterministic replay evidence. Missing application-specific
@@ -98,6 +107,12 @@ async def verify_finding(
         )
 
     if trigger.sqli is not None:
+        if trigger.sqli.error_based is not None:
+            return _verify_error_based_sqli_finding(
+                finding=finding,
+                trigger=trigger,
+            )
+
         return _verify_time_based_sqli_finding(
             finding=finding,
             trigger=trigger,
@@ -361,6 +376,65 @@ def _verify_time_based_sqli_finding(
             replay_evidence.verification_samples
         ),
         verification_confidence=0.0,
+    )
+
+
+def _verify_error_based_sqli_finding(
+    finding,
+    trigger: VerificationTriggerRequest,
+):
+    if finding.vulnerability.category != "SQLI":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This verification endpoint currently "
+                "supports SQLi TIME_BASED or ERROR_BASED "
+                "findings only."
+            ),
+        )
+
+    replay_evidence = collect_error_based_replay_evidence(
+        finding=finding,
+        timeout_seconds=trigger.timeout_seconds,
+    )
+
+    return verify_error_based_sqli_finding(
+        finding=finding,
+        baseline_responses=list(
+            replay_evidence.baseline_responses
+        ),
+        verification_responses=list(
+            replay_evidence.verification_responses
+        ),
+        # Baseline and verification requests differ only in the
+        # tested parameter's value (see
+        # backend.replay.sqli_error_based) -- that single-variable
+        # construction is itself the deterministic basis for
+        # attributing any error-signature difference to the tested
+        # parameter, not a guess.
+        parameter_dependency_established=True,
+        scanner_evidence_agrees=(
+            _scanner_evidence_matches_database_error(
+                finding
+            )
+        ),
+    )
+
+
+def _scanner_evidence_matches_database_error(
+    finding,
+) -> bool:
+    """
+    True when the scanner's own captured evidence text already
+    matches one of the existing, shared database-error signatures
+    (backend.verification.sqli_error_signatures) -- reused as-is,
+    not duplicated.
+    """
+
+    return bool(
+        find_database_error_matches(
+            finding.original_test.evidence
+        )
     )
 
 

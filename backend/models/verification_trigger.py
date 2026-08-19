@@ -78,8 +78,48 @@ class SqliTimeBasedVerificationConfig(BaseModel):
     baseline_parameter_value: str
 
 
+class SqliErrorBasedVerificationConfig(BaseModel):
+    """
+    Configuration for ERROR_BASED SQLi verification.
+
+    No fields are required. Unlike TIME_BASED, which needs an
+    explicit pre-injection value because a timing delay alone
+    reveals nothing about the "clean" response, ERROR_BASED can
+    derive an approximate baseline directly from the scanner's own
+    captured payload (see backend.replay.sqli_error_based) without
+    additional caller input.
+    """
+
+
 class SqliVerificationConfig(BaseModel):
-    time_based: SqliTimeBasedVerificationConfig
+    time_based: SqliTimeBasedVerificationConfig | None = None
+    error_based: SqliErrorBasedVerificationConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_single_sqli_subtype(
+        self,
+    ):
+        configured = sum(
+            config is not None
+            for config in (
+                self.time_based,
+                self.error_based,
+            )
+        )
+
+        if configured == 0:
+            raise ValueError(
+                "A SQLi verification subtype configuration "
+                "must be supplied"
+            )
+
+        if configured > 1:
+            raise ValueError(
+                "Only one SQLi verification subtype may be "
+                "configured at a time"
+            )
+
+        return self
 
 
 class XssPayloadVariant(BaseModel):

@@ -16,6 +16,7 @@ from backend.services.scan_service import (
     save_verified_finding,
 )
 from backend.services.sqli_verification_service import (
+    finalize_error_based_sqli_verification,
     finalize_time_based_sqli_verification,
 )
 from backend.services.xss_verification_service import (
@@ -32,6 +33,9 @@ from backend.verification.csrf_origin import (
 )
 from backend.verification.csrf_state import (
     CsrfStateObservation,
+)
+from backend.verification.sqli_response import (
+    ResponseObservation,
 )
 from backend.verification.sqli_timing import (
     TimingSample,
@@ -193,6 +197,69 @@ def verify_time_based_sqli_finding(
                 credible_network_or_server_explanation
             ),
         )
+    )
+
+    save_verified_finding(
+        scan_id=finding.scan_id,
+        finding=verified,
+    )
+
+    return verified
+
+
+def verify_error_based_sqli_finding(
+    *,
+    finding: NormalizedFinding,
+    baseline_responses: list[ResponseObservation],
+    verification_responses: list[ResponseObservation],
+    parameter_dependency_established: bool,
+    scanner_evidence_agrees: bool = False,
+    baseline_db_error_explains_signal: bool = False,
+    safe_parameter_handling_established: bool = False,
+    controlled_non_sql_explanation_established: bool = False,
+) -> VerifiedFinding:
+    """
+    Finalize and persist ERROR_BASED SQLi verification.
+
+    Mirrors verify_time_based_sqli_finding's shape exactly: replay/
+    evidence collection stays separate from this persistence/
+    orchestration layer, which only validates category, delegates
+    classification to the existing, unmodified
+    finalize_error_based_sqli_verification(), and persists the
+    result the same way every other verification family does.
+
+    baseline_db_error_explains_signal, safe_parameter_handling_
+    established, and controlled_non_sql_explanation_established are
+    accepted (matching finalize_error_based_sqli_verification's own
+    signature) but -- exactly like TIME_BASED's
+    credible_network_or_server_explanation -- the current API
+    dispatcher does not derive or pass them; they default to False
+    and remain available for a caller with stronger, externally
+    established context.
+    """
+
+    if finding.vulnerability.category != "SQLI":
+        raise ValueError(
+            "ERROR_BASED SQLi pipeline received a non-SQLI finding"
+        )
+
+    verified = finalize_error_based_sqli_verification(
+        finding=finding,
+        baseline_responses=baseline_responses,
+        verification_responses=verification_responses,
+        parameter_dependency_established=(
+            parameter_dependency_established
+        ),
+        scanner_evidence_agrees=scanner_evidence_agrees,
+        baseline_db_error_explains_signal=(
+            baseline_db_error_explains_signal
+        ),
+        safe_parameter_handling_established=(
+            safe_parameter_handling_established
+        ),
+        controlled_non_sql_explanation_established=(
+            controlled_non_sql_explanation_established
+        ),
     )
 
     save_verified_finding(
