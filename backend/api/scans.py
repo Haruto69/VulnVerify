@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi import (
@@ -9,6 +10,9 @@ from fastapi import (
 )
 
 from backend.parsers import get_parser
+from backend.services.auto_verification_service import (
+    run_auto_verification,
+)
 from backend.services.deduplication_service import (
     group_duplicate_findings,
 )
@@ -20,6 +24,7 @@ from backend.services.scan_service import (
     get_all_scans,
     get_normalized_findings,
     get_scan,
+    get_verification_progress,
     get_verified_finding,
     get_verified_findings,
     save_normalized_findings,
@@ -118,6 +123,25 @@ async def upload_scan(
             ),
         ) from exc
 
+    # Dispatched on a detached daemon thread rather than FastAPI's
+    # BackgroundTasks: run_auto_verification does blocking replay I/O
+    # (httpx.Client, not an async client) that can take noticeable
+    # time across several findings, and Starlette's BackgroundTasks
+    # execute as part of the same request/response lifecycle -- under
+    # a synchronous test client, or under real load, that would make
+    # every upload block until every finding's replay finishes,
+    # exactly what this feature exists to avoid. daemon=True also
+    # means a still-running verification thread can never block
+    # process/interpreter shutdown. This fire-and-forget dispatch
+    # only ever happens for a fresh upload, never when a scan is
+    # merely reloaded (e.g. from Scan History), since that path never
+    # calls this endpoint.
+    threading.Thread(
+        target=run_auto_verification,
+        args=(scan_id,),
+        daemon=True,
+    ).start()
+
     return {
         "scan_id": scan_id,
         "filename": scan["filename"],
@@ -148,6 +172,44 @@ async def get_scan_status(
         "scan_id": scan["scan_id"],
         "status": scan["status"],
         "error": scan["error"],
+    }
+
+
+@router.get("/{scan_id}/verification-progress")
+async def get_scan_verification_progress(
+    scan_id: str,
+):
+    scan = get_scan(scan_id)
+
+    if scan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scan not found",
+        )
+
+    progress = get_verification_progress(scan_id)
+
+    if progress is None:
+        # Automatic verification was never started for this scan
+        # (e.g. it was loaded from Scan History rather than freshly
+        # uploaded) -- a real, distinct state, not "running".
+        return {
+            "scan_id": scan_id,
+            "status": "NOT_STARTED",
+            "total": 0,
+            "completed": 0,
+            "current": None,
+            "counts": {
+                "TRUE_POSITIVE": 0,
+                "FALSE_POSITIVE": 0,
+                "INCONCLUSIVE": 0,
+            },
+            "errors": [],
+        }
+
+    return {
+        "scan_id": scan_id,
+        **progress,
     }
 
 

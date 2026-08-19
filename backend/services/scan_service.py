@@ -1,8 +1,10 @@
 from uuid import uuid4
 
 from backend.storage.repository import (
+    auto_verification_queued_scan_ids,
     normalized_findings,
     scans,
+    verification_progress,
     verified_findings,
 )
 
@@ -105,3 +107,38 @@ def get_verified_finding(
     return findings.get(
         finding_id
     )
+
+
+def try_claim_scan_for_auto_verification(
+    scan_id: str,
+) -> bool:
+    """
+    Atomically claim a scan for automatic verification.
+
+    Returns True the first time this is called for a given scan_id
+    (the caller should proceed), and False on every subsequent call
+    (the caller must not queue the same scan's findings again). This
+    is the scan-level half of duplicate-verification protection --
+    the finding-level half lives in auto_verification_service, which
+    additionally skips any finding that already has a stored verified
+    result.
+    """
+
+    if scan_id in auto_verification_queued_scan_ids:
+        return False
+
+    auto_verification_queued_scan_ids.add(scan_id)
+    return True
+
+
+def set_verification_progress(
+    scan_id: str,
+    progress: dict,
+) -> None:
+    verification_progress[scan_id] = progress
+
+
+def get_verification_progress(
+    scan_id: str,
+) -> dict | None:
+    return verification_progress.get(scan_id)

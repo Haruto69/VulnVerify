@@ -650,6 +650,8 @@ function NewScan({ scan, onUploaded }) {
             (scan_id: {scan.scanMeta.scan_id})
           </div>
         )}
+
+        <AutoVerificationProgress progress={scan.verificationProgress} />
       </section>
 
       {/* SCAN CONFIGURATION */}
@@ -763,6 +765,118 @@ function NewScan({ scan, onUploaded }) {
       </div>
     </div>
   );
+}
+
+/* =========================
+   AUTOMATIC VERIFICATION PROGRESS
+========================= */
+
+/**
+ * Compact progress panel for the automatic verification that starts
+ * on the backend right after a fresh upload finishes normalizing
+ * (see backend/services/auto_verification_service.py). Reflects
+ * exactly what GET /scans/{id}/verification-progress reports --
+ * no invented percentages, durations, or estimated completion times.
+ *
+ * Renders nothing when there is nothing to show: no automatic run has
+ * been observed for the active scan (NOT_STARTED, e.g. a scan loaded
+ * from Scan History), or a completed run found no automatically-
+ * verifiable findings at all.
+ */
+function AutoVerificationProgress({ progress }) {
+  if (!progress || progress.status === "NOT_STARTED") {
+    return null;
+  }
+
+  if (progress.status === "RUNNING") {
+    const hasKnownTotal = progress.total > 0;
+    const percent = hasKnownTotal
+      ? Math.round((progress.completed / progress.total) * 100)
+      : null;
+
+    return (
+      <div className="auto-verify-panel">
+        <div className="auto-verify-panel-header">
+          <span className="auto-verify-spinner" aria-hidden="true" />
+          <strong>Verifying findings…</strong>
+          {hasKnownTotal && (
+            <span className="auto-verify-count">
+              {progress.completed} / {progress.total}
+            </span>
+          )}
+        </div>
+
+        <div className="auto-verify-bar-track">
+          <div
+            className={
+              hasKnownTotal
+                ? "auto-verify-bar-fill"
+                : "auto-verify-bar-fill auto-verify-bar-indeterminate"
+            }
+            style={hasKnownTotal ? { width: `${percent}%` } : undefined}
+          />
+        </div>
+
+        {progress.current && (
+          <div className="auto-verify-current">
+            Current: {progress.current}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (progress.status === "COMPLETED") {
+    if (progress.total === 0) {
+      return null;
+    }
+
+    const counts = progress.counts || {};
+
+    return (
+      <div className="auto-verify-panel auto-verify-panel-complete">
+        <div className="auto-verify-panel-header">
+          <strong>Verification complete</strong>
+        </div>
+        <div className="auto-verify-summary">
+          {progress.total} finding{progress.total === 1 ? "" : "s"} processed
+        </div>
+        <div className="auto-verify-counts">
+          <span className="status-true-positive">
+            TRUE POSITIVE: {counts.TRUE_POSITIVE ?? 0}
+          </span>
+          <span className="status-false-positive">
+            FALSE POSITIVE: {counts.FALSE_POSITIVE ?? 0}
+          </span>
+          <span className="status-inconclusive">
+            INCONCLUSIVE: {counts.INCONCLUSIVE ?? 0}
+          </span>
+        </div>
+        {progress.errors && progress.errors.length > 0 && (
+          <div className="auto-verify-current">
+            {progress.errors.length} finding
+            {progress.errors.length === 1 ? "" : "s"} could not be
+            automatically verified and remain unverified.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (progress.status === "FAILED") {
+    return (
+      <div className="auto-verify-panel auto-verify-panel-failed">
+        <div className="auto-verify-panel-header">
+          <strong>Automatic verification failed</strong>
+        </div>
+        {progress.error && (
+          <div className="auto-verify-current">{progress.error}</div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /* =========================

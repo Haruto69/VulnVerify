@@ -155,6 +155,18 @@ export function getFindings(scanId) {
 }
 
 /**
+ * GET /scans/{scan_id}/verification-progress
+ * -> {scan_id, status, total, completed, current, counts, errors}
+ * status is one of NOT_STARTED | RUNNING | COMPLETED | FAILED.
+ * Reflects automatic verification only (see backend/services/
+ * auto_verification_service.py) -- manual per-finding verification
+ * via verifyFinding() below is unaffected and not tracked here.
+ */
+export function getVerificationProgress(scanId) {
+  return request(`/scans/${scanId}/verification-progress`);
+}
+
+/**
  * POST /scans/{scan_id}/findings/{finding_id}/verify
  * trigger must be exactly one of {csrf, sqli, xss} per the backend's
  * VerificationTriggerRequest contract. Returns a single

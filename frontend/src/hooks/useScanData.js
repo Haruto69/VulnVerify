@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   uploadScan,
   getScans,
@@ -8,9 +8,12 @@ import {
   getEnrichment,
   getRiskPriorities,
   getMetrics,
+  getVerificationProgress,
   loadDemoGroundTruth,
   verifyFinding,
 } from "../api/client";
+
+const VERIFICATION_POLL_INTERVAL_MS = 800;
 
 /**
  * Central client-side state for the currently loaded scan.
@@ -49,6 +52,19 @@ export function useScanData() {
 
   const [verifyingId, setVerifyingId] = useState(null);
   const [verifyErrorsById, setVerifyErrorsById] = useState({});
+
+  // Automatic (post-upload) verification progress -- distinct from
+  // manual per-finding verification above. null means "nothing to
+  // show" (no automatic run has been started or observed for the
+  // active scan yet, e.g. a scan loaded from Scan History with no
+  // stored progress). See backend/services/auto_verification_service.py.
+  const [verificationProgress, setVerificationProgress] = useState(null);
+
+  // Tracks which scan_id the active poll loop belongs to, so a poll
+  // started for one scan stops updating state the moment the user
+  // switches to a different scan (upload or Scan History selection)
+  // instead of racing it.
+  const pollingScanIdRef = useRef(null);
 
   const refreshScanData = useCallback(async (id) => {
     setLoadingScanData(true);
@@ -100,6 +116,60 @@ export function useScanData() {
     }
   }, []);
 
+  /**
+   * Polls GET /scans/{id}/verification-progress until automatic
+   * verification reaches a terminal state (COMPLETED or FAILED), then
+   * refreshes the rest of the scan's data via the existing
+   * refreshScanData -- Dashboard/Findings/Prioritized Risks/Metrics/
+   * Reports all update through that single, already-existing path,
+   * nothing is duplicated here.
+   *
+   * Only ever started from startScan (a fresh upload) below -- never
+   * from loadScan, so re-selecting a scan from Scan History cannot
+   * trigger polling or the appearance of verification "running again".
+   */
+  const pollVerificationProgress = useCallback(
+    async (id) => {
+      pollingScanIdRef.current = id;
+
+      while (true) {
+        let progress;
+
+        try {
+          progress = await getVerificationProgress(id);
+        } catch {
+          // A transient poll failure should not abort the loop or
+          // fabricate a terminal state -- just try again next tick.
+          if (pollingScanIdRef.current !== id) return;
+          await new Promise((resolve) =>
+            setTimeout(resolve, VERIFICATION_POLL_INTERVAL_MS)
+          );
+          continue;
+        }
+
+        // The user switched to a different scan while this loop was
+        // in flight -- stop silently rather than overwriting their
+        // newly-selected scan's state.
+        if (pollingScanIdRef.current !== id) return;
+
+        setVerificationProgress(progress);
+
+        if (
+          progress.status === "COMPLETED" ||
+          progress.status === "FAILED"
+        ) {
+          await refreshScanData(id);
+          return;
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, VERIFICATION_POLL_INTERVAL_MS)
+        );
+      }
+    },
+    [refreshScanData]
+  );
+
   const loadDemoGroundTruthData = useCallback(async () => {
     if (!scanId) return undefined;
 
@@ -144,6 +214,13 @@ export function useScanData() {
       setGroundTruthError(null);
       setUploadError(null);
 
+      // Stop any poll loop still running for a previously-active
+      // scan, and clear its progress display -- selecting a scan from
+      // Scan History must never re-trigger or appear to re-trigger
+      // automatic verification.
+      pollingScanIdRef.current = null;
+      setVerificationProgress(null);
+
       try {
         const allScans = await getScans();
         const meta = allScans.find((item) => item.scan_id === id);
@@ -156,6 +233,16 @@ export function useScanData() {
         setScanMeta(meta);
         setUploadState("success");
         await refreshScanData(id);
+
+        // A single, non-polling check: shows this scan's already-
+        // completed (or never-started) automatic verification result,
+        // without starting a poll loop for it.
+        try {
+          const progress = await getVerificationProgress(id);
+          setVerificationProgress(progress);
+        } catch {
+          setVerificationProgress(null);
+        }
 
         return meta;
       } catch (err) {
@@ -172,6 +259,7 @@ export function useScanData() {
     async ({ scanner, file }) => {
       setUploadState("uploading");
       setUploadError(null);
+      setVerificationProgress(null);
 
       try {
         const result = await uploadScan({ scanner, file });
@@ -179,6 +267,14 @@ export function useScanData() {
         setScanMeta(result);
         setUploadState("success");
         await refreshScanData(result.scan_id);
+
+        // Fire-and-forget: the backend already started automatic
+        // verification for this freshly-uploaded scan in the
+        // background (see backend/api/scans.py::upload_scan). This
+        // only polls for and displays that progress -- it does not
+        // start a second verification run.
+        pollVerificationProgress(result.scan_id);
+
         return result;
       } catch (err) {
         setUploadState("error");
@@ -186,7 +282,7 @@ export function useScanData() {
         throw err;
       }
     },
-    [refreshScanData]
+    [refreshScanData, pollVerificationProgress]
   );
 
   const verify = useCallback(
@@ -237,6 +333,7 @@ export function useScanData() {
     loadError,
     verifyingId,
     verifyErrorsById,
+    verificationProgress,
     loadingGroundTruth,
     groundTruthError,
     startScan,
