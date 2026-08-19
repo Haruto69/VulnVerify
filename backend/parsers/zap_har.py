@@ -210,8 +210,20 @@ def _build_finding_from_candidate(
         ),
 
         context=FindingContext(
+            # Authentication (a privileged login) is never inferred
+            # here -- a session cookie is not proof of a logged-in,
+            # privileged account, only of a session. session_required
+            # is set to YES only when the structural detector found a
+            # recognized session cookie with the same value on both
+            # the form-load request and the matched submission (see
+            # CsrfCandidate.session_cookie_consistent); otherwise it
+            # stays UNKNOWN, exactly as before.
             authentication_required=RequirementState.UNKNOWN,
-            session_required=RequirementState.UNKNOWN,
+            session_required=(
+                RequirementState.YES
+                if candidate.session_cookie_consistent
+                else RequirementState.UNKNOWN
+            ),
         ),
 
         references=[],

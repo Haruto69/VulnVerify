@@ -1295,11 +1295,22 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
       {family === "csrf" && (
         <div className="form-field">
           <label>Deterministic acceptance indicator</label>
+          <p className="form-field-help">
+            Enter the <strong>exact text</strong> the target application
+            itself returns in its response body when this specific
+            request succeeds — not a general word like "accepted" or
+            "success". The backend checks for this text appearing
+            literally in the live replay response; it does not
+            recognize any fixed set of values, because that text is
+            different for every target application. Only enter text
+            you have independently confirmed appears on success —
+            guessing produces an unreliable result, not evidence.
+          </p>
           <input
             type="text"
             value={stateIndicator}
             onChange={(e) => setStateIndicator(e.target.value)}
-            placeholder='Text expected in the response body on success, e.g. "Profile updated"'
+            placeholder='Exact success text, e.g. "Password Changed."'
           />
         </div>
       )}

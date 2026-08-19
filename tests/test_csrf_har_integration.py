@@ -588,14 +588,19 @@ def test_real_dvwa_fixture_get_finding_now_inferred_state_changing(
     is about) end-to-end through the unmodified /verify endpoint and
     confirms state_changing_endpoint=True is now passed for it.
 
-    This does NOT assert the overall result is TRUE_POSITIVE: this
-    finding's context.authentication_required/session_required are
-    UNKNOWN by construction (candidate detection deliberately never
-    guesses authentication -- see backend/parsers/zap_har.py), which
-    independently blocks forged_request_is_plausible_under_threat_
-    model. That is a separate, pre-existing gap unrelated to
-    state_changing_endpoint and out of scope for this task; it is not
-    silently worked around here.
+    Also confirms forged_request_is_plausible_under_threat_model=True
+    is now passed: the fixture's matched request carries the same
+    PHPSESSID cookie value as the request that loaded the source form
+    (see CsrfCandidate.session_cookie_consistent in
+    backend/verification/csrf_candidate_detection.py), so
+    context.session_required is now YES rather than UNKNOWN --
+    authentication_required remains UNKNOWN, since a session cookie is
+    not proof of a privileged login.
+
+    This still does NOT assert the overall result is TRUE_POSITIVE:
+    other independent conditions (e.g. reproducibility, CSRF-defense
+    absence corroboration) are not stubbed to true evidence here and
+    remain out of scope for this task.
     """
 
     scan_id = _upload_har_fixture()
@@ -652,3 +657,7 @@ def test_real_dvwa_fixture_get_finding_now_inferred_state_changing(
 
     assert response.status_code == 200
     assert captured_kwargs["state_changing_endpoint"] is True
+    assert (
+        captured_kwargs["forged_request_is_plausible_under_threat_model"]
+        is True
+    )

@@ -14,9 +14,18 @@ from backend.verification.csrf_candidate_detection import (
 def make_html_entry(
     url: str,
     html: str,
+    cookies: dict[str, str] | None = None,
 ) -> dict:
     return {
-        "request": {"method": "GET", "url": url, "queryString": []},
+        "request": {
+            "method": "GET",
+            "url": url,
+            "queryString": [],
+            "cookies": [
+                {"name": name, "value": value}
+                for name, value in (cookies or {}).items()
+            ],
+        },
         "response": {
             "status": 200,
             "content": {"mimeType": "text/html", "text": html},
@@ -24,7 +33,11 @@ def make_html_entry(
     }
 
 
-def make_get_entry(url: str, query: dict[str, str]) -> dict:
+def make_get_entry(
+    url: str,
+    query: dict[str, str],
+    cookies: dict[str, str] | None = None,
+) -> dict:
     return {
         "request": {
             "method": "GET",
@@ -32,6 +45,10 @@ def make_get_entry(url: str, query: dict[str, str]) -> dict:
             "queryString": [
                 {"name": name, "value": value}
                 for name, value in query.items()
+            ],
+            "cookies": [
+                {"name": name, "value": value}
+                for name, value in (cookies or {}).items()
             ],
         },
         "response": {
@@ -400,6 +417,110 @@ def test_duplicate_parameter_values_do_not_break_matching():
     candidates = find_csrf_candidates(entries)
 
     assert len(candidates) == 1
+
+
+# ---------------------------------------------------------------------
+# session_cookie_consistent
+# ---------------------------------------------------------------------
+
+
+def test_matching_session_cookie_on_form_and_request_is_consistent():
+    entries = [
+        make_html_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            TOKENLESS_GET_FORM_HTML,
+            cookies={"PHPSESSID": "abc123"},
+        ),
+        make_get_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            {
+                "password_new": "meow",
+                "password_conf": "meow",
+                "Change": "Change",
+            },
+            cookies={"PHPSESSID": "abc123"},
+        ),
+    ]
+
+    candidates = find_csrf_candidates(entries)
+
+    assert len(candidates) == 1
+    assert candidates[0].session_cookie_consistent is True
+
+
+def test_no_cookies_at_all_is_not_session_consistent():
+    entries = [
+        make_html_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            TOKENLESS_GET_FORM_HTML,
+        ),
+        make_get_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            {
+                "password_new": "meow",
+                "password_conf": "meow",
+                "Change": "Change",
+            },
+        ),
+    ]
+
+    candidates = find_csrf_candidates(entries)
+
+    assert len(candidates) == 1
+    assert candidates[0].session_cookie_consistent is False
+
+
+def test_unrecognized_cookie_name_is_not_session_consistent():
+    # A cookie is present and even matches in value, but its name is
+    # not a recognized session-cookie name -- must not be treated as
+    # session evidence just because *some* cookie matched.
+    entries = [
+        make_html_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            TOKENLESS_GET_FORM_HTML,
+            cookies={"marketing_id": "abc123"},
+        ),
+        make_get_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            {
+                "password_new": "meow",
+                "password_conf": "meow",
+                "Change": "Change",
+            },
+            cookies={"marketing_id": "abc123"},
+        ),
+    ]
+
+    candidates = find_csrf_candidates(entries)
+
+    assert len(candidates) == 1
+    assert candidates[0].session_cookie_consistent is False
+
+
+def test_session_cookie_value_mismatch_is_not_session_consistent():
+    # Recognized cookie name, but the value differs between the
+    # form-load request and the submission -- not the same session.
+    entries = [
+        make_html_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            TOKENLESS_GET_FORM_HTML,
+            cookies={"PHPSESSID": "abc123"},
+        ),
+        make_get_entry(
+            "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+            {
+                "password_new": "meow",
+                "password_conf": "meow",
+                "Change": "Change",
+            },
+            cookies={"PHPSESSID": "different-session"},
+        ),
+    ]
+
+    candidates = find_csrf_candidates(entries)
+
+    assert len(candidates) == 1
+    assert candidates[0].session_cookie_consistent is False
 
 
 # ---------------------------------------------------------------------

@@ -1080,6 +1080,13 @@ button {
   color: var(--text-muted);
 }
 
+.form-field-help {
+  margin: -2px 0 2px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
 .form-field input,
 .form-field select,
 .form-field textarea {

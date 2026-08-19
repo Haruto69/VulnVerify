@@ -58,6 +58,19 @@ KNOWN_ANTI_CSRF_TOKEN_FIELD_NAMES = {
     "__requestverificationtoken",
 }
 
+# Real, well-known session-cookie names used by common web servers and
+# frameworks. Bounded and explicit for the same reason as
+# KNOWN_ANTI_CSRF_TOKEN_FIELD_NAMES above: this lets us recognize a
+# specific, recognized session identifier rather than assuming any
+# cookie at all implies a session. Matched case-insensitively.
+KNOWN_SESSION_COOKIE_NAMES = {
+    "phpsessid",
+    "jsessionid",
+    "asp.net_sessionid",
+    "connect.sid",
+    "sessionid",
+}
+
 
 @dataclass(frozen=True)
 class FormField:
@@ -93,6 +106,16 @@ class CsrfCandidate:
     form: DetectedForm
     request_entry_index: int
     matched_field_names: tuple[str, ...]
+    # True only when the matched request carries a cookie whose name
+    # is a recognized session-cookie name (KNOWN_SESSION_COOKIE_NAMES)
+    # with the SAME value as a cookie of that same name already
+    # present on the request that loaded the source form. This is
+    # structural evidence that the form was viewed and submitted
+    # within one continuous session -- not merely "a cookie existed",
+    # which is why an arbitrary/unrecognized cookie name, or a
+    # session-cookie name whose value differs between the two
+    # requests, does not set this True.
+    session_cookie_consistent: bool = False
 
 
 class _FormExtractor(HTMLParser):
@@ -275,6 +298,55 @@ def _request_parameter_names(entry: dict) -> frozenset[str]:
     return frozenset(names)
 
 
+def _entry_cookies(entry: dict) -> dict[str, str]:
+    request = entry.get("request") or {}
+    cookies = request.get("cookies")
+    result: dict[str, str] = {}
+
+    if not isinstance(cookies, list):
+        return result
+
+    for item in cookies:
+        if not isinstance(item, dict):
+            continue
+
+        name = item.get("name")
+        value = item.get("value")
+
+        if isinstance(name, str) and isinstance(value, str):
+            result[name] = value
+
+    return result
+
+
+def _session_cookie_consistent(
+    form: DetectedForm,
+    entries: list[dict],
+    request_entry_index: int,
+) -> bool:
+    """
+    True only when the matched request and the request that loaded
+    the source form share a recognized session cookie with an
+    identical value -- see CsrfCandidate.session_cookie_consistent.
+    """
+
+    form_entry_cookies = _entry_cookies(
+        entries[form.source_entry_index]
+    )
+    request_entry_cookies = _entry_cookies(
+        entries[request_entry_index]
+    )
+
+    for name, value in request_entry_cookies.items():
+        if name.strip().lower() not in KNOWN_SESSION_COOKIE_NAMES:
+            continue
+
+        if form_entry_cookies.get(name) == value:
+            return True
+
+    return False
+
+
 def _entry_method(entry: dict) -> str:
     request = entry.get("request") or {}
     return str(request.get("method", "")).strip().upper()
@@ -349,6 +421,11 @@ def find_csrf_candidates(
                 form=form,
                 request_entry_index=entry_index,
                 matched_field_names=tuple(sorted(matched_names)),
+                session_cookie_consistent=_session_cookie_consistent(
+                    form=form,
+                    entries=entries,
+                    request_entry_index=entry_index,
+                ),
             )
         )
 

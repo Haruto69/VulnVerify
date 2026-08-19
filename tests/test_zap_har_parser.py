@@ -191,6 +191,25 @@ def test_har_csrf_finding_has_provenance_metadata():
     }
 
 
+def test_har_csrf_finding_infers_session_required_from_consistent_cookie():
+    # The fixture's matched CSRF request carries the same PHPSESSID
+    # value as the request that loaded the source form, so this is
+    # genuine session-cookie evidence -- session_required should be
+    # YES. authentication_required must stay UNKNOWN: a session cookie
+    # is not proof of a privileged, logged-in account.
+    parser = ZapParser()
+
+    findings = parser.parse(
+        content=read_fixture(HAR_CSRF_REPORT),
+        scan_id="scan-csrf-har-001",
+    )
+
+    context = findings[0].context
+
+    assert context.session_required == "YES"
+    assert context.authentication_required == "UNKNOWN"
+
+
 def test_har_csrf_finding_preserves_session_cookie_for_replay():
     # The existing replay architecture needs the session cookie to
     # reproduce the request -- it must be preserved even though
