@@ -325,44 +325,7 @@ function Dashboard({ scan, onNavigate }) {
           </div>
         </div>
 
-        {/* PERFORMANCE -- backend has no ground-truth comparison
-            endpoint, so these numbers cannot be computed from real
-            data. Left as clearly-labeled demo data rather than
-            fabricated. */}
-        <div className="panel performance-panel">
-          <div className="panel-header">
-            <div>
-              <h3>Verification Performance</h3>
-              <p>Measured against labeled ground-truth data</p>
-            </div>
-            <span className="demo-badge">DEMO DATA</span>
-          </div>
-
-          <div className="metric-line">
-            <span>Precision</span>
-            <strong>96.0%</strong>
-          </div>
-          <div className="metric-line">
-            <span>Recall</span>
-            <strong>92.3%</strong>
-          </div>
-          <div className="metric-line">
-            <span>F1 Score</span>
-            <strong>94.1%</strong>
-          </div>
-
-          <div className="mini-matrix">
-            <div></div>
-            <strong>PRED. TRUE</strong>
-            <strong>PRED. FALSE</strong>
-            <strong>ACTUAL TRUE</strong>
-            <span className="matrix-good">24</span>
-            <span className="matrix-bad">2</span>
-            <strong>ACTUAL FALSE</strong>
-            <span className="matrix-bad">1</span>
-            <span className="matrix-good">41</span>
-          </div>
-        </div>
+        <VerificationPerformancePanel scan={scan} hasScan={hasScan} />
       </section>
 
       <section className="panel risks-panel">
@@ -434,6 +397,116 @@ function StatCard({ title, value, subtitle, type }) {
       <div className="stat-title">{title}</div>
       <div className="stat-value">{value}</div>
       <div className="stat-subtitle">{subtitle}</div>
+    </div>
+  );
+}
+
+/**
+ * Verification Performance panel.
+ *
+ * Precision/recall/F1 are only ever shown when the backend has
+ * actually computed them from explicit ground-truth labels (see
+ * GET /scans/{scan_id}/metrics) -- there is no fallback that derives
+ * these numbers from verification results alone, since a verifier's
+ * own output can never serve as ground truth for evaluating itself.
+ */
+function VerificationPerformancePanel({ scan, hasScan }) {
+  const metrics = scan.metrics;
+
+  const formatPercent = (value) =>
+    value === null || value === undefined
+      ? "N/A"
+      : `${(value * 100).toFixed(1)}%`;
+
+  const handleLoadDemoGroundTruth = async () => {
+    try {
+      await scan.loadDemoGroundTruth();
+    } catch {
+      // surfaced via scan.groundTruthError below
+    }
+  };
+
+  return (
+    <div className="panel performance-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Verification Performance</h3>
+          <p>Measured against labeled ground-truth data</p>
+        </div>
+      </div>
+
+      {!hasScan ? (
+        <EmptyState text="Upload a scan to see verification performance." />
+      ) : !metrics ? (
+        <EmptyState text="Loading metrics..." />
+      ) : metrics.ground_truth_count === 0 ? (
+        <div className="ground-truth-empty">
+          <EmptyState text="Ground truth not available for this scan." />
+          <button
+            className="view-button"
+            onClick={handleLoadDemoGroundTruth}
+            disabled={scan.loadingGroundTruth}
+          >
+            {scan.loadingGroundTruth
+              ? "Loading..."
+              : "Load demo ground truth"}
+          </button>
+          {scan.groundTruthError && (
+            <ErrorBanner
+              message={`Could not load ground truth: ${scan.groundTruthError.message}`}
+            />
+          )}
+        </div>
+      ) : metrics.evaluated_count === 0 ? (
+        <EmptyState
+          text={`${metrics.ground_truth_count} finding(s) have ground-truth labels, but none have a usable verification result yet (unverified: ${metrics.unverified_ground_truth_count}, inconclusive: ${metrics.excluded_inconclusive_count}). Verify those findings to compute metrics.`}
+        />
+      ) : (
+        <>
+          <div className="metric-line">
+            <span>Precision</span>
+            <strong>{formatPercent(metrics.precision)}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Recall</span>
+            <strong>{formatPercent(metrics.recall)}</strong>
+          </div>
+          <div className="metric-line">
+            <span>F1 Score</span>
+            <strong>{formatPercent(metrics.f1)}</strong>
+          </div>
+
+          <div className="mini-matrix">
+            <div></div>
+            <strong>PRED. TRUE</strong>
+            <strong>PRED. FALSE</strong>
+            <strong>ACTUAL TRUE</strong>
+            <span className="matrix-good">
+              {metrics.true_positive}
+            </span>
+            <span className="matrix-bad">
+              {metrics.false_negative}
+            </span>
+            <strong>ACTUAL FALSE</strong>
+            <span className="matrix-bad">
+              {metrics.false_positive}
+            </span>
+            <span className="matrix-good">
+              {metrics.true_negative}
+            </span>
+          </div>
+
+          {(metrics.unverified_ground_truth_count > 0 ||
+            metrics.excluded_inconclusive_count > 0) && (
+            <p className="metrics-footnote">
+              {metrics.evaluated_count} of {metrics.ground_truth_count}{" "}
+              labeled finding(s) scored (unverified:{" "}
+              {metrics.unverified_ground_truth_count}, inconclusive:{" "}
+              {metrics.excluded_inconclusive_count}).
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

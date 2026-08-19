@@ -1,0 +1,10 @@
+[
+  {
+    "scanner": "ZAP",
+    "scanner_finding_id": "40018",
+    "path": "/DVWA/vulnerabilities/sqli/",
+    "parameter": "id",
+    "expected_status": "TRUE_POSITIVE",
+    "note": "DVWA (low security level) SQL Injection on the 'id' parameter is a well-known, confirmed, exploitable vulnerability in the DVWA training application. This label is hand-set from DVWA's published vulnerability catalog, not derived from any scanner or verifier output, so it can legitimately serve as ground truth for precision/recall evaluation."
+  }
+]

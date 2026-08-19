@@ -6,6 +6,8 @@ import {
   getDuplicateGroups,
   getEnrichment,
   getRiskPriorities,
+  getMetrics,
+  loadDemoGroundTruth,
   verifyFinding,
 } from "../api/client";
 
@@ -33,6 +35,10 @@ export function useScanData() {
   const [enrichmentById, setEnrichmentById] = useState({});
   const [priorityById, setPriorityById] = useState({});
   const [duplicateGroups, setDuplicateGroups] = useState([]);
+  const [metrics, setMetrics] = useState(null);
+
+  const [loadingGroundTruth, setLoadingGroundTruth] = useState(false);
+  const [groundTruthError, setGroundTruthError] = useState(null);
 
   const [uploadState, setUploadState] = useState("idle"); // idle | uploading | error
   const [uploadError, setUploadError] = useState(null);
@@ -48,14 +54,21 @@ export function useScanData() {
     setLoadError(null);
 
     try {
-      const [findingsRes, enrichmentRes, dedupRes, riskRes, verifiedRes] =
-        await Promise.all([
-          getFindings(id),
-          getEnrichment(id),
-          getDuplicateGroups(id),
-          getRiskPriorities(id),
-          getVerifiedFindings(id),
-        ]);
+      const [
+        findingsRes,
+        enrichmentRes,
+        dedupRes,
+        riskRes,
+        verifiedRes,
+        metricsRes,
+      ] = await Promise.all([
+        getFindings(id),
+        getEnrichment(id),
+        getDuplicateGroups(id),
+        getRiskPriorities(id),
+        getVerifiedFindings(id),
+        getMetrics(id),
+      ]);
 
       setFindings(findingsRes.findings);
 
@@ -78,12 +91,31 @@ export function useScanData() {
         verifiedMap[item.finding_id] = item;
       }
       setVerifiedById(verifiedMap);
+      setMetrics(metricsRes);
     } catch (err) {
       setLoadError(err);
     } finally {
       setLoadingScanData(false);
     }
   }, []);
+
+  const loadDemoGroundTruthData = useCallback(async () => {
+    if (!scanId) return undefined;
+
+    setLoadingGroundTruth(true);
+    setGroundTruthError(null);
+
+    try {
+      const result = await loadDemoGroundTruth(scanId);
+      await refreshScanData(scanId);
+      return result;
+    } catch (err) {
+      setGroundTruthError(err);
+      throw err;
+    } finally {
+      setLoadingGroundTruth(false);
+    }
+  }, [scanId, refreshScanData]);
 
   const startScan = useCallback(
     async ({ scanner, file }) => {
@@ -147,14 +179,18 @@ export function useScanData() {
     enrichmentById,
     priorityById,
     duplicateGroups,
+    metrics,
     uploadState,
     uploadError,
     loadingScanData,
     loadError,
     verifyingId,
     verifyErrorsById,
+    loadingGroundTruth,
+    groundTruthError,
     startScan,
     verify,
     refreshScanData,
+    loadDemoGroundTruth: loadDemoGroundTruthData,
   };
 }

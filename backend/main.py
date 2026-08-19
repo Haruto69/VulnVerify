@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api.enrichment import (
     router as enrichment_router,
 )
+from backend.api.evaluation import (
+    router as evaluation_router,
+)
 from backend.api.findings import (
     router as findings_router,
 )
@@ -79,5 +82,10 @@ app.include_router(
 
 app.include_router(
     enrichment_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    evaluation_router,
     prefix="/api/v1",
 )

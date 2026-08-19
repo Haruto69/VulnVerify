@@ -450,6 +450,19 @@ button {
   font-weight: 700;
 }
 
+.ground-truth-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.metrics-footnote {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #97a0b3;
+}
+
 
 /* =========================
    RISKS

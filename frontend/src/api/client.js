@@ -146,3 +146,36 @@ export function getEnrichment(scanId) {
 export function getRiskPriorities(scanId) {
   return request(`/scans/${scanId}/risk-priorities`);
 }
+
+/** GET /scans/{scan_id}/metrics -> EvaluationMetrics */
+export function getMetrics(scanId) {
+  return request(`/scans/${scanId}/metrics`);
+}
+
+/** GET /scans/{scan_id}/ground-truth -> {scan_id, count, labels[]} */
+export function getGroundTruth(scanId) {
+  return request(`/scans/${scanId}/ground-truth`);
+}
+
+/**
+ * POST /scans/{scan_id}/ground-truth
+ * labels: [{finding_id, expected_status, note?}]
+ */
+export function submitGroundTruth(scanId, labels) {
+  return request(`/scans/${scanId}/ground-truth`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ labels }),
+  });
+}
+
+/**
+ * POST /scans/{scan_id}/ground-truth/demo
+ * Matches the backend's bundled demo dataset against this scan's
+ * findings; returns {scan_id, count, labels[]} (count may be 0).
+ */
+export function loadDemoGroundTruth(scanId) {
+  return request(`/scans/${scanId}/ground-truth/demo`, {
+    method: "POST",
+  });
+}
