@@ -1,5 +1,6 @@
 import json
 import re
+from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -13,15 +14,44 @@ from backend.models.normalized_finding import (
     ParameterLocation,
     RequirementState,
     TargetInfo,
+    VulnerabilityCategory,
     VulnerabilityInfo,
 )
 from backend.parsers.base import BaseParser
 from backend.parsers.zap_har import is_har_report, parse_har_report
+from backend.verification.xss_context import XssSubtype
+
+
+@dataclass(frozen=True)
+class ZapAlertClassification:
+    category: VulnerabilityCategory
+    subtype: str | None
+    cwe_fallback: str
 
 
 class ZapParser(BaseParser):
 
-    SQLI_PLUGIN_IDS = {"40018"}
+    # Authoritative plugin-ID -> classification table. Adding support
+    # for a new ZAP alert means adding one entry here -- nothing else
+    # in the parser should infer category/subtype/CWE independently.
+    PLUGIN_CLASSIFICATIONS: dict[str, ZapAlertClassification] = {
+        "40018": ZapAlertClassification(
+            category=VulnerabilityCategory.SQLI,
+            subtype=None,
+            cwe_fallback="CWE-89",
+        ),
+        "40012": ZapAlertClassification(
+            category=VulnerabilityCategory.XSS,
+            subtype=XssSubtype.REFLECTED.value,
+            cwe_fallback="CWE-79",
+        ),
+    }
+
+    # Conservative, exact-match-only fallback for reports where the
+    # pluginid is missing/renamed. Never substring/fuzzy matched.
+    ALERT_NAME_CLASSIFICATIONS: dict[str, str] = {
+        "cross site scripting (reflected)": "40012",
+    }
 
     RISK_CODE_MAP = {
         "0": "INFORMATIONAL",
@@ -91,13 +121,16 @@ class ZapParser(BaseParser):
         findings = []
 
         for alert, instance in alert_instances:
-            if not self._is_supported_alert(alert):
+            classification = self._classify_alert(alert)
+
+            if classification is None:
                 continue
 
             findings.append(
                 self._build_normalized_finding(
                     alert=alert,
                     instance=instance,
+                    classification=classification,
                     scan_id=scan_id,
                     scan_timestamp=scan_timestamp,
                 )
@@ -135,12 +168,32 @@ class ZapParser(BaseParser):
 
         return alert_instances
 
-    def _is_supported_alert(
+    def _classify_alert(
         self,
         alert: dict
-    ) -> bool:
+    ) -> ZapAlertClassification | None:
 
-        return str(alert.get("pluginid", "")) in self.SQLI_PLUGIN_IDS
+        pluginid = str(alert.get("pluginid", ""))
+
+        classification = self.PLUGIN_CLASSIFICATIONS.get(pluginid)
+
+        if classification is not None:
+            return classification
+
+        alert_name = (
+            alert.get("alert")
+            or alert.get("name")
+            or ""
+        ).strip().lower()
+
+        fallback_pluginid = self.ALERT_NAME_CLASSIFICATIONS.get(
+            alert_name
+        )
+
+        if fallback_pluginid is not None:
+            return self.PLUGIN_CLASSIFICATIONS.get(fallback_pluginid)
+
+        return None
 
     def _extract_scan_timestamp(
         self,
@@ -156,6 +209,7 @@ class ZapParser(BaseParser):
         self,
         alert: dict,
         instance: dict,
+        classification: ZapAlertClassification,
         scan_id: str,
         scan_timestamp: str | None,
     ) -> NormalizedFinding:
@@ -204,7 +258,7 @@ class ZapParser(BaseParser):
         cwe_id = str(alert.get("cweid", "")).strip()
 
         if not cwe_id or cwe_id == "-1":
-            cwe = "CWE-89"
+            cwe = classification.cwe_fallback
         else:
             cwe = f"CWE-{cwe_id}"
 
@@ -229,8 +283,8 @@ class ZapParser(BaseParser):
             ),
 
             vulnerability=VulnerabilityInfo(
-                category="SQLI",
-                subtype=None,
+                category=classification.category,
+                subtype=classification.subtype,
 
                 raw_severity=(
                     alert.get("riskdesc")
