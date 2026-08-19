@@ -1,0 +1,64 @@
+{
+    "@programName": "ZAP",
+    "@version": "2.17.0",
+    "@generated": "Fri, 14 Aug 2026 16:02:01",
+    "created": "2026-08-14T20:02:01.135328980Z",
+    "site": [
+        {
+            "@name": "http://127.0.0.1",
+            "@host": "127.0.0.1",
+            "@port": "80",
+            "@ssl": "false",
+            "alerts": [
+                {
+                    "pluginid": "40012",
+                    "alertRef": "40012",
+                    "alert": "Cross Site Scripting (Reflected)",
+                    "name": "Cross Site Scripting (Reflected)",
+                    "riskcode": "3",
+                    "confidence": "2",
+                    "riskdesc": "High (Medium)",
+                    "desc": "<p>Cross-site Scripting (XSS) is an attack technique that involves echoing attacker-supplied code into a user's browser instance.</p>",
+                    "count": "1",
+                    "solution": "<p>Phase: Architecture and Design</p><p>Use a vetted library or framework that does not allow this weakness to occur or provides constructs that make this weakness easier to avoid.</p>",
+                    "otherinfo": "",
+                    "reference": "<p>https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html</p>",
+                    "cweid": "79",
+                    "wascid": "8",
+                    "sourceid": "1",
+                    "tags": [
+                        {
+                            "tag": "CWE-79",
+                            "link": "https://cwe.mitre.org/data/definitions/79.html"
+                        },
+                        {
+                            "tag": "OWASP_2021_A03",
+                            "link": "https://owasp.org/Top10/A03_2021-Injection/"
+                        }
+                    ],
+                    "instances": [
+                        {
+                            "id": "201",
+                            "uri": "http://127.0.0.1/DVWA/vulnerabilities/xss_r/?name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E",
+                            "nodeName": "http://127.0.0.1/DVWA/vulnerabilities/xss_r/ (name)",
+                            "method": "GET",
+                            "param": "name",
+                            "attack": "<script>alert(1)</script>",
+                            "evidence": "<script>alert(1)</script>",
+                            "otherinfo": "",
+                            "request-header": "GET http://127.0.0.1/DVWA/vulnerabilities/xss_r/?name=%3Cscript%3Ealert%281%29%3C%2Fscript%3E HTTP/1.1\r\nhost: 127.0.0.1\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\nAccept-Language: en-US,en;q=0.5\r\nConnection: keep-alive\r\nReferer: http://127.0.0.1/DVWA/vulnerabilities/xss_r/\r\nCookie: security=low; PHPSESSID=8f0c8106a7df6bec4443f5218ce4b813\r\nUpgrade-Insecure-Requests: 1\r\n\r\n",
+                            "request-body": "",
+                            "response-header": "HTTP/1.1 200 OK\r\nDate: Fri, 14 Aug 2026 19:58:58 GMT\r\nServer: Apache/2.4.68 (Debian)\r\nContent-Length: 4522\r\nConnection: Keep-Alive\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n",
+                            "response-body": "<pre>Hello <script>alert(1)</script></pre>\n"
+                        }
+                    ]
+                }
+            ],
+            "statistics": []
+        }
+    ],
+    "sequences": [],
+    "statistics": [],
+    "afPlanErrors": [],
+    "afPlanWarns": []
+}
