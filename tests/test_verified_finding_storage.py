@@ -49,7 +49,13 @@ def test_save_and_get_verified_finding():
         finding_id="csrf-001",
     )
 
-    assert result is finding
+    # Compared by value, not identity: verified_findings is now
+    # backed by SQLite (backend/storage/collections.py), so a read
+    # always returns a freshly-deserialized VerifiedFinding built from
+    # stored data, never the exact object that was saved -- that was
+    # never a real product guarantee, only an artifact of the old
+    # in-memory dict implementation.
+    assert result == finding
 
 
 def test_list_verified_findings_for_scan():
