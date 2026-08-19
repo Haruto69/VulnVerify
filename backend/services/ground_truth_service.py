@@ -43,10 +43,18 @@ def save_ground_truth_labels(
             + ", ".join(unknown_ids)
         )
 
-    bucket = ground_truth.setdefault(scan_id, {})
+    # Read-merge-write-back rather than mutating whatever
+    # ground_truth[scan_id] returns in place: the SQLite-backed store
+    # (backend/storage/collections.py::GroundTruthStore) treats each
+    # __setitem__ as replacing that scan's whole label collection in
+    # one transaction, so a merged dict must be assigned back
+    # explicitly for the write to actually persist.
+    bucket = dict(ground_truth.get(scan_id, {}))
 
     for label in labels:
         bucket[label.finding_id] = label
+
+    ground_truth[scan_id] = bucket
 
     return list(bucket.values())
 

@@ -25,3 +25,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# SQLite persistence (backend/storage/db.py)
+backend/data/*.db
+backend/data/*.db-wal
+backend/data/*.db-shm

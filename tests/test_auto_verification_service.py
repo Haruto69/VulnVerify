@@ -554,10 +554,16 @@ def test_already_verified_finding_is_not_reverified(monkeypatch):
     run_auto_verification(scan_id)
 
     assert called["count"] == 0
-    # The pre-existing manual result is untouched.
+    # The pre-existing manual result is untouched. Compared by value
+    # (== ), not identity (is): verified_findings is now backed by
+    # SQLite (see backend/storage/collections.py), so a read always
+    # returns a freshly-deserialized VerifiedFinding, never the exact
+    # object that was written -- "untouched" means the stored data is
+    # unchanged, not that a Python object survived, which was never
+    # a real product guarantee.
     assert (
         verified_findings[scan_id][finding.finding_id]
-        is pre_existing
+        == pre_existing
     )
 
     progress = verification_progress[scan_id]

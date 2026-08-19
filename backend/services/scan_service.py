@@ -48,10 +48,17 @@ def update_scan_status(
     if scan is None:
         return None
 
-    scan["status"] = status
-    scan["error"] = error
+    # Read-merge-write-back: the SQLite-backed ScanStore
+    # (backend/storage/collections.py) returns a freshly-built dict
+    # from each read, so mutating it in place would never persist --
+    # the updated dict must be assigned back through __setitem__.
+    updated = dict(scan)
+    updated["status"] = status
+    updated["error"] = error
 
-    return scan
+    scans[scan_id] = updated
+
+    return updated
 
 
 def save_normalized_findings(
@@ -74,12 +81,14 @@ def save_verified_finding(
     scan_id: str,
     finding,
 ):
-    if scan_id not in verified_findings:
-        verified_findings[scan_id] = {}
-
-    verified_findings[scan_id][
-        finding.finding_id
-    ] = finding
+    # Read-merge-write-back, for the same reason as
+    # update_scan_status above -- VerifiedFindingsStore.__setitem__
+    # replaces a scan's whole verified-findings collection in one
+    # transaction, so the merged dict must be assigned back
+    # explicitly rather than mutated through a stale reference.
+    bucket = dict(verified_findings.get(scan_id, {}))
+    bucket[finding.finding_id] = finding
+    verified_findings[scan_id] = bucket
 
 
 def get_verified_findings(
