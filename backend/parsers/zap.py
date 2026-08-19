@@ -1,5 +1,4 @@
 import json
-import logging
 import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit, urlunsplit
@@ -15,6 +14,7 @@ from backend.models.normalized_finding import (
     ParameterLocation,
     RequirementState,
     TargetInfo,
+    VulnerabilityCategory,
     VulnerabilityInfo,
 )
 from backend.parsers.base import BaseParser
@@ -22,60 +22,34 @@ from backend.parsers.zap_har import is_har_report, parse_har_report
 from backend.verification.xss_context import XssSubtype
 
 
-logger = logging.getLogger(__name__)
-
-
 @dataclass(frozen=True)
 class ZapAlertClassification:
-    """
-    What one ZAP plugin ID means to VulnVerify: the NormalizedFinding
-    category/subtype it produces, and the CWE to fall back to only
-    when ZAP's own cweid is missing/unusable for that alert.
-
-    Keeping category/subtype/cwe_fallback bundled per plugin ID (
-    rather than three parallel dicts, or an if/elif chain hardcoding
-    "SQLI") is what lets _build_normalized_finding stay a single,
-    vulnerability-agnostic construction path -- adding a new
-    supported ZAP plugin means adding one entry here, not touching
-    the HTTP/request/response normalization logic at all.
-    """
-
-    category: str
+    category: VulnerabilityCategory
     subtype: str | None
     cwe_fallback: str
 
 
 class ZapParser(BaseParser):
 
-    # Plugin IDs VulnVerify currently knows how to classify and
-    # normalize. This is the single source of truth for
-    # "is this ZAP alert supported" -- extend it (not an SQLi-only
-    # allowlist plus scattered hardcoded category strings) to support
-    # another ZAP plugin.
+    # Authoritative plugin-ID -> classification table. Adding support
+    # for a new ZAP alert means adding one entry here -- nothing else
+    # in the parser should infer category/subtype/CWE independently.
     PLUGIN_CLASSIFICATIONS: dict[str, ZapAlertClassification] = {
         "40018": ZapAlertClassification(
-            category="SQLI",
+            category=VulnerabilityCategory.SQLI,
             subtype=None,
             cwe_fallback="CWE-89",
         ),
         "40012": ZapAlertClassification(
-            category="XSS",
+            category=VulnerabilityCategory.XSS,
             subtype=XssSubtype.REFLECTED.value,
             cwe_fallback="CWE-79",
         ),
     }
 
-    # A small, exact-match (never substring) fallback from a known
-    # ZAP alert/name string to its plugin ID, used only when
-    # "pluginid" itself is missing or not one of the IDs above. This
-    # exists so a minor ZAP version bump that stops sending pluginid,
-    # or renames it, doesn't silently discard a genuinely-supported
-    # alert -- it deliberately does NOT do fuzzy/substring matching
-    # (e.g. "contains xss"), which would risk misclassifying an
-    # unrelated alert whose description happens to mention another
-    # vulnerability type in passing.
-    ALERT_NAME_TO_PLUGIN_ID: dict[str, str] = {
-        "sql injection": "40018",
+    # Conservative, exact-match-only fallback for reports where the
+    # pluginid is missing/renamed. Never substring/fuzzy matched.
+    ALERT_NAME_CLASSIFICATIONS: dict[str, str] = {
         "cross site scripting (reflected)": "40012",
     }
 
@@ -150,21 +124,15 @@ class ZapParser(BaseParser):
             classification = self._classify_alert(alert)
 
             if classification is None:
-                logger.debug(
-                    "Skipping unsupported ZAP alert: pluginid=%s "
-                    "name=%s",
-                    alert.get("pluginid"),
-                    alert.get("alert") or alert.get("name"),
-                )
                 continue
 
             findings.append(
                 self._build_normalized_finding(
                     alert=alert,
                     instance=instance,
+                    classification=classification,
                     scan_id=scan_id,
                     scan_timestamp=scan_timestamp,
-                    classification=classification,
                 )
             )
 
@@ -200,45 +168,32 @@ class ZapParser(BaseParser):
 
         return alert_instances
 
-    def _resolve_plugin_id(
-        self,
-        alert: dict,
-    ) -> str | None:
-        """
-        Resolve the plugin ID that determines this alert's
-        classification. pluginid is the primary signal; the
-        exact-match alert-name fallback in ALERT_NAME_TO_PLUGIN_ID is
-        only consulted when pluginid itself doesn't resolve to a
-        supported plugin, and never via partial/substring text
-        matches.
-        """
-
-        plugin_id = str(alert.get("pluginid", "")).strip()
-
-        if plugin_id in self.PLUGIN_CLASSIFICATIONS:
-            return plugin_id
-
-        alert_name = (
-            alert.get("alert") or alert.get("name") or ""
-        ).strip().lower()
-
-        return self.ALERT_NAME_TO_PLUGIN_ID.get(alert_name)
-
     def _classify_alert(
         self,
-        alert: dict,
+        alert: dict
     ) -> ZapAlertClassification | None:
-        """
-        Resolve an alert to its ZapAlertClassification, or None when
-        it is not (yet) a supported ZAP plugin.
-        """
 
-        plugin_id = self._resolve_plugin_id(alert)
+        pluginid = str(alert.get("pluginid", ""))
 
-        if plugin_id is None:
-            return None
+        classification = self.PLUGIN_CLASSIFICATIONS.get(pluginid)
 
-        return self.PLUGIN_CLASSIFICATIONS.get(plugin_id)
+        if classification is not None:
+            return classification
+
+        alert_name = (
+            alert.get("alert")
+            or alert.get("name")
+            or ""
+        ).strip().lower()
+
+        fallback_pluginid = self.ALERT_NAME_CLASSIFICATIONS.get(
+            alert_name
+        )
+
+        if fallback_pluginid is not None:
+            return self.PLUGIN_CLASSIFICATIONS.get(fallback_pluginid)
+
+        return None
 
     def _extract_scan_timestamp(
         self,
@@ -254,12 +209,10 @@ class ZapParser(BaseParser):
         self,
         alert: dict,
         instance: dict,
+        classification: ZapAlertClassification,
         scan_id: str,
         scan_timestamp: str | None,
-        classification: ZapAlertClassification,
     ) -> NormalizedFinding:
-
-        plugin_id = self._resolve_plugin_id(alert)
 
         url = instance.get("uri", "")
         parsed_url = urlsplit(url)
@@ -319,7 +272,9 @@ class ZapParser(BaseParser):
 
             source=FindingSource(
                 scanner="ZAP",
-                scanner_finding_id=plugin_id,
+                scanner_finding_id=str(
+                    alert.get("pluginid")
+                ),
                 original_name=(
                     alert.get("name")
                     or alert.get("alert")
