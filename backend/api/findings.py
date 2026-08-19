@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -39,6 +41,14 @@ from backend.services.scan_service import (
 from backend.verification.csrf_confidence import (
     calculate_csrf_confidence,
 )
+# TEMPORARY DIAGNOSTIC IMPORT -- remove together with the logging
+# below once the live DVWA CSRF FALSE_POSITIVE is diagnosed. Reuses
+# the existing, unmodified session-unavailability check instead of
+# duplicating its logic for the diagnostic log line.
+from backend.verification.csrf_context import (
+    build_csrf_verification_context as _diag_build_context,
+    _session_unavailable as _diag_session_unavailable,
+)
 from backend.verification.csrf_defense import (
     evaluate_csrf_defense,
 )
@@ -65,6 +75,143 @@ router = APIRouter(
     prefix="/scans",
     tags=["findings"],
 )
+
+
+# ---------------------------------------------------------------------
+# TEMPORARY DIAGNOSTIC LOGGING -- CSRF verification path only.
+#
+# Added to diagnose a live DVWA CSRF verification returning
+# FALSE_POSITIVE despite a matched deterministic acceptance indicator
+# and an enabled origin_test. Logs replay status/URL/body-length/
+# indicator-match facts and the fully resolved CsrfVerificationContext
+# booleans immediately before the (unmodified) classifier runs.
+#
+# Never logs cookies, Authorization headers, or any other secret --
+# see _diag_redact_headers. Does not change replay behavior or
+# classification rules; every value logged is read from data that is
+# already computed on the existing code path, nothing is
+# re-requested or re-derived differently.
+#
+# REMOVE this whole block (the "DIAGNOSTIC" logger, _diag_* helpers,
+# and every _diag_log(...) call site below) once the FALSE_POSITIVE
+# cause is identified.
+# ---------------------------------------------------------------------
+
+_diag_logger = logging.getLogger("vulnverify.csrf_diagnostic")
+_diag_logger.setLevel(logging.INFO)
+
+if not _diag_logger.handlers:
+    _diag_handler = logging.StreamHandler()
+    _diag_handler.setFormatter(
+        logging.Formatter("[CSRF-DIAGNOSTIC] %(message)s")
+    )
+    _diag_logger.addHandler(_diag_handler)
+    _diag_logger.propagate = False
+
+
+_DIAG_SENSITIVE_HEADER_NAMES = {
+    "cookie",
+    "set-cookie",
+    "authorization",
+    "x-csrf-token",
+}
+
+
+def _diag_redact_headers(
+    headers: dict,
+) -> dict:
+    return {
+        name: (
+            "[REDACTED]"
+            if name.lower() in _DIAG_SENSITIVE_HEADER_NAMES
+            else value
+        )
+        for name, value in headers.items()
+    }
+
+
+def _diag_log_replay(
+    label: str,
+    replay_result,
+    indicator: str | None,
+) -> None:
+    response = replay_result.replay.response
+    body = response.body
+
+    body_len = len(body) if body is not None else 0
+    indicator_found = (
+        indicator is not None
+        and body is not None
+        and indicator in body
+    )
+
+    location_header = None
+    if response.headers:
+        for name, value in response.headers.items():
+            if name.lower() == "location":
+                location_header = value
+                break
+
+    _diag_logger.info(
+        "%s: status=%s url=%s method=%s body_len=%d "
+        "indicator_found=%s location_header=%s errors=%s",
+        label,
+        response.status,
+        replay_result.replay.request.url,
+        replay_result.replay.request.method,
+        body_len,
+        indicator_found,
+        location_header,
+        replay_result.errors,
+    )
+
+
+def _diag_log_origin_replay(origin_replay) -> None:
+    modified = origin_replay.modified_replay
+    _diag_logger.info(
+        "origin_replay: mutation=%s modified_status=%s "
+        "rejection_observed=%s attacker_origin=%s "
+        "attacker_referer=%s request_headers=%s",
+        origin_replay.mutation,
+        modified.replay.response.status,
+        origin_replay.rejection_observed,
+        origin_replay.attacker_origin,
+        origin_replay.attacker_referer,
+        _diag_redact_headers(modified.replay.request.headers),
+    )
+
+
+def _diag_log_context(context) -> None:
+    _diag_logger.info(
+        "context: request_accepted=%s "
+        "strong_deterministic_acceptance_evidence=%s "
+        "reproducible=%s nondeterministic_result=%s "
+        "scanner_related_signal_only=%s "
+        "authentication_or_session_unavailable=%s "
+        "effective_csrf_defense_absent_or_bypassable=%s "
+        "cross_site_origin_or_referer_is_reliably_rejected=%s "
+        "state_changing_endpoint=%s "
+        "authenticated_or_privileged_context_required=%s "
+        "forged_request_is_plausible_under_threat_model=%s "
+        "evidence_saved=%s state_change_not_observable=%s "
+        "browser_context_required_but_unavailable=%s "
+        "insufficient_request_context=%s",
+        context.request_accepted,
+        context.strong_deterministic_acceptance_evidence,
+        context.reproducible,
+        context.nondeterministic_result,
+        context.scanner_related_signal_only,
+        context.authentication_or_session_unavailable,
+        context.effective_csrf_defense_absent_or_bypassable,
+        context.cross_site_origin_or_referer_is_reliably_rejected,
+        context.state_changing_endpoint,
+        context.authenticated_or_privileged_context_required,
+        context.forged_request_is_plausible_under_threat_model,
+        context.evidence_saved,
+        context.state_change_not_observable,
+        context.browser_context_required_but_unavailable,
+        context.insufficient_request_context,
+    )
 
 
 @router.post(
@@ -158,6 +305,21 @@ def _verify_csrf_finding(
         trigger=trigger,
     )
 
+    _diag_indicator = (
+        trigger.csrf.state_check.deterministic_acceptance_indicator
+        if trigger.csrf.state_check is not None
+        else None
+    )
+    _diag_log_replay(
+        "baseline_replay", baseline_replay, _diag_indicator
+    )
+    _diag_logger.info(
+        "baseline_session_unavailable=%s",
+        _diag_session_unavailable(
+            finding=finding, replay_result=baseline_replay
+        ),
+    )
+
     (
         reproducible,
         nondeterministic_result,
@@ -167,6 +329,18 @@ def _verify_csrf_finding(
         trigger=trigger,
         first_state_observation=state_observation,
     )
+
+    if reproducibility_replay is not None:
+        _diag_log_replay(
+            "reproducibility_replay",
+            reproducibility_replay,
+            _diag_indicator,
+        )
+    else:
+        _diag_logger.info(
+            "reproducibility_replay: not attempted "
+            "(no state_check indicator configured)"
+        )
 
     defense_observation = None
 
@@ -273,10 +447,68 @@ def _verify_csrf_finding(
             )
         )
 
+        _diag_log_origin_replay(origin_replay)
+        _diag_logger.info(
+            "origin_observation: "
+            "rejection_attributable_to_origin_policy=%s "
+            "origin_or_referer_enforced=%s",
+            origin_observation.rejection_attributable_to_origin_policy,
+            origin_observation.origin_or_referer_enforced,
+        )
+
     request_accepted = (
         state_observation
         .deterministic_acceptance_indicator_matched
     )
+
+    # ---- shared, unmodified evidence resolution (used for both the
+    # diagnostic context re-derivation below and the real classifier
+    # call further down -- identical inputs, computed once) ----
+    _diag_state_changing_endpoint = (
+        _infer_state_changing_endpoint(finding)
+    )
+    _diag_forged_plausible = _forged_request_is_plausible(finding)
+    _diag_defense_absence = _derive_defense_absence(
+        defense_observation=defense_observation,
+        origin_observation=origin_observation,
+    )
+    _diag_request_accepted = (
+        request_accepted if request_accepted else None
+    )
+    _diag_scanner_related_signal_only = (
+        _is_har_derived_csrf_candidate(finding)
+        and not has_strong_acceptance_evidence(state_observation)
+    )
+
+    _diag_context = _diag_build_context(
+        finding=finding,
+        replay_result=baseline_replay,
+        state_observation=state_observation,
+        defense_observation=defense_observation,
+        origin_observation=origin_observation,
+        reproducibility_replay_result=reproducibility_replay,
+        state_changing_endpoint=_diag_state_changing_endpoint,
+        forged_request_is_plausible_under_threat_model=(
+            _diag_forged_plausible
+        ),
+        effective_csrf_defense_absent_or_bypassable=(
+            _diag_defense_absence
+        ),
+        request_accepted=_diag_request_accepted,
+        reproducible=reproducible,
+        nondeterministic_result=nondeterministic_result,
+        evidence_saved=True,
+        browser_context_required=(
+            trigger.csrf.browser_context_required
+        ),
+        insufficient_request_context=False,
+        insufficient_scanner_data=False,
+        scanner_related_signal_only=(
+            _diag_scanner_related_signal_only
+        ),
+        verification_confidence=0.0,
+    )
+    _diag_log_context(_diag_context)
 
     verified = verify_csrf_finding(
         finding=finding,
@@ -286,34 +518,17 @@ def _verify_csrf_finding(
         origin_observation=origin_observation,
         reproducibility_replay_result=reproducibility_replay,
 
-        state_changing_endpoint=(
-            _infer_state_changing_endpoint(
-                finding
-            )
-        ),
+        state_changing_endpoint=_diag_state_changing_endpoint,
 
         forged_request_is_plausible_under_threat_model=(
-            _forged_request_is_plausible(
-                finding
-            )
+            _diag_forged_plausible
         ),
 
         effective_csrf_defense_absent_or_bypassable=(
-            _derive_defense_absence(
-                defense_observation=(
-                    defense_observation
-                ),
-                origin_observation=(
-                    origin_observation
-                ),
-            )
+            _diag_defense_absence
         ),
 
-        request_accepted=(
-            request_accepted
-            if request_accepted
-            else None
-        ),
+        request_accepted=_diag_request_accepted,
 
         reproducible=reproducible,
         nondeterministic_result=nondeterministic_result,
@@ -342,10 +557,7 @@ def _verify_csrf_finding(
         # strictly about when the orchestration layer applies the
         # flag it already defined.
         scanner_related_signal_only=(
-            _is_har_derived_csrf_candidate(finding)
-            and not has_strong_acceptance_evidence(
-                state_observation
-            )
+            _diag_scanner_related_signal_only
         ),
 
         verification_confidence=(
