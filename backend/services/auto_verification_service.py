@@ -41,6 +41,10 @@ from backend.models.verification_trigger import (
     XssVerificationConfig,
 )
 from backend.replay.csrf import CsrfOriginMutation
+from backend.replay.session_refresh import (
+    finding_requires_authentication,
+    resolve_session_cookie_override,
+)
 from backend.services.scan_service import (
     get_normalized_findings,
     get_verified_findings,
@@ -130,6 +134,7 @@ def build_auto_trigger(
 def _dispatch(
     finding: NormalizedFinding,
     trigger: VerificationTriggerRequest,
+    session_cookie_override: str | None,
 ):
     """
     Route to the exact same per-family verification function the
@@ -149,15 +154,23 @@ def _dispatch(
     )
 
     if trigger.csrf is not None:
-        return _verify_csrf_finding(finding=finding, trigger=trigger)
+        return _verify_csrf_finding(
+            finding=finding,
+            trigger=trigger,
+            session_cookie_override=session_cookie_override,
+        )
 
     if trigger.sqli is not None:
         return _verify_error_based_sqli_finding(
-            finding=finding, trigger=trigger
+            finding=finding,
+            trigger=trigger,
+            session_cookie_override=session_cookie_override,
         )
 
     return _verify_reflected_xss_finding(
-        finding=finding, trigger=trigger
+        finding=finding,
+        trigger=trigger,
+        session_cookie_override=session_cookie_override,
     )
 
 
@@ -216,6 +229,17 @@ def run_auto_verification(scan_id: str) -> None:
     if total == 0:
         return
 
+    # Refreshed at most once per scan run, on the first candidate
+    # finding whose own normalized context declares an authentication/
+    # session requirement -- then reused for every other finding in
+    # this same scan that also needs it (see backend/replay/
+    # session_refresh.py). A finding that doesn't require
+    # authentication never receives an override, regardless of
+    # whether this cache is populated. Stays None (no-op, existing
+    # scanner-captured Cookie behavior) when no finding needs it, or
+    # no AuthSessionConfig is configured, or the login attempt fails.
+    session_cache: dict[str, str | None] = {}
+
     try:
         for finding, trigger in candidates:
             progress["current"] = _describe_activity(
@@ -224,7 +248,14 @@ def run_auto_verification(scan_id: str) -> None:
             set_verification_progress(scan_id, dict(progress))
 
             try:
-                verified = _dispatch(finding, trigger)
+                session_cookie_override = (
+                    _resolve_cached_session_override(
+                        finding, session_cache
+                    )
+                )
+                verified = _dispatch(
+                    finding, trigger, session_cookie_override
+                )
                 status = verified.classification.status
 
                 if status in progress["counts"]:
@@ -267,6 +298,35 @@ def run_auto_verification(scan_id: str) -> None:
         progress["status"] = "FAILED"
         progress["error"] = str(exc)
         set_verification_progress(scan_id, dict(progress))
+
+
+_SESSION_CACHE_KEY = "session_cookie_override"
+
+
+def _resolve_cached_session_override(
+    finding: NormalizedFinding,
+    cache: dict[str, str | None],
+) -> str | None:
+    """
+    finding_requires_authentication is checked per finding (a finding
+    that doesn't need it is never given an override, cache or not),
+    but the actual login network call behind
+    resolve_session_cookie_override happens at most once per scan run
+    -- its result (which may legitimately be None, e.g. login failed)
+    is cached after the first auth-requiring finding and reused for
+    every subsequent one, so a scan with several authenticated
+    findings on the same target logs in once, not once per finding.
+    """
+
+    if not finding_requires_authentication(finding):
+        return None
+
+    if _SESSION_CACHE_KEY not in cache:
+        cache[_SESSION_CACHE_KEY] = (
+            resolve_session_cookie_override(finding)
+        )
+
+    return cache[_SESSION_CACHE_KEY]
 
 
 def _describe_activity(

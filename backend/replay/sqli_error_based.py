@@ -19,6 +19,7 @@ from backend.replay.request_builder import (
 def build_error_based_replay_requests(
     *,
     finding: NormalizedFinding,
+    session_cookie_override: str | None = None,
 ) -> tuple[ReplayRequest, ReplayRequest]:
     """
     Construct the two requests required for ERROR_BASED SQLi replay.
@@ -70,7 +71,8 @@ def build_error_based_replay_requests(
         )
 
     verification_request = build_replay_request(
-        finding
+        finding,
+        session_cookie_override=session_cookie_override,
     )
 
     index, current_value = _find_single_query_parameter(

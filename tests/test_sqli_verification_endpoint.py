@@ -566,7 +566,9 @@ def test_unknown_finding_returns_404_for_sqli_trigger():
 def test_csrf_trigger_still_reaches_csrf_verification(monkeypatch):
     setup_scan_with_csrf_finding()
 
-    def fake_replay_finding(finding, timeout_seconds):
+    def fake_replay_finding(
+        finding, timeout_seconds, session_cookie_override=None
+    ):
         return ReplayResult(
             finding_id="csrf-endpoint-001",
             replay=ReplayExecution(

@@ -17,6 +17,7 @@ def build_reflected_xss_variant_request(
     *,
     finding: NormalizedFinding,
     payload: str,
+    session_cookie_override: str | None = None,
 ) -> ReplayRequest:
     """
     Construct a replay request for one REFLECTED XSS payload variant
@@ -43,7 +44,10 @@ def build_reflected_xss_variant_request(
             "parameters only"
         )
 
-    base_request = build_replay_request(finding)
+    base_request = build_replay_request(
+        finding,
+        session_cookie_override=session_cookie_override,
+    )
 
     mutated_url = _replace_single_query_parameter(
         url=base_request.url,

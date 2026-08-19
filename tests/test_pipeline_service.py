@@ -65,8 +65,12 @@ def test_replay_finding_uses_generic_pipeline(
 
     def fake_build_replay_request(
         normalized_finding,
+        session_cookie_override=None,
     ):
         captured["finding"] = normalized_finding
+        captured["session_cookie_override"] = (
+            session_cookie_override
+        )
 
         from backend.models.replay_result import ReplayRequest
 

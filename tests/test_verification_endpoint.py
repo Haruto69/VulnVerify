@@ -205,6 +205,7 @@ def test_verify_endpoint_returns_inconclusive_for_indicator_only(
     def fake_replay_finding(
         finding,
         timeout_seconds,
+        session_cookie_override=None,
     ):
         return make_replay(
             status=200,
@@ -271,6 +272,7 @@ def test_verify_endpoint_detects_enforced_csrf_token(
     def fake_replay_finding(
         finding,
         timeout_seconds,
+        session_cookie_override=None,
     ):
         return baseline
 

@@ -20,6 +20,7 @@ def build_time_based_replay_requests(
     *,
     finding: NormalizedFinding,
     baseline_parameter_value: str,
+    session_cookie_override: str | None = None,
 ) -> tuple[ReplayRequest, ReplayRequest]:
     """
     Construct the two requests required by the frozen TIME_BASED
@@ -64,7 +65,8 @@ def build_time_based_replay_requests(
         )
 
     verification_request = build_replay_request(
-        finding
+        finding,
+        session_cookie_override=session_cookie_override,
     )
 
     baseline_url = _replace_single_query_parameter(
