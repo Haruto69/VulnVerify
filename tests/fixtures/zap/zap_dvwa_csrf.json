@@ -1,0 +1,311 @@
+{
+  "log": {
+    "version": "1.2",
+    "creator": {
+      "name": "OWASP ZAP",
+      "version": "2.17.0"
+    },
+    "entries": [
+      {
+        "startedDateTime": "2026-08-19T10:00:00.000Z",
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1/DVWA/vulnerabilities/csrf/",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {
+              "name": "PHPSESSID",
+              "value": "test-session-fake-0001"
+            },
+            {
+              "name": "security",
+              "value": "low"
+            }
+          ],
+          "headers": [
+            {
+              "name": "Host",
+              "value": "127.0.0.1"
+            },
+            {
+              "name": "Cookie",
+              "value": "PHPSESSID=test-session-fake-0001; security=low"
+            }
+          ],
+          "queryString": [],
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/html; charset=UTF-8"
+            }
+          ],
+          "content": {
+            "size": 512,
+            "mimeType": "text/html; charset=UTF-8",
+            "text": "<!DOCTYPE html><html lang=\"en-GB\"><head><title>Vulnerability: CSRF :: Damn Vulnerable Web Application (DVWA)</title></head><body><div id=\"main_body\"><h1>Vulnerability: Cross Site Request Forgery (CSRF)</h1><form action=\"#\" method=\"GET\"><label>New password:</label><input type=\"password\" name=\"password_new\"><label>Confirm new password:</label><input type=\"password\" name=\"password_conf\"><input type=\"submit\" name=\"Change\" value=\"Change\"></form></div></body></html>"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "cache": {},
+        "timings": {
+          "send": 0,
+          "wait": 10,
+          "receive": 1
+        }
+      },
+      {
+        "startedDateTime": "2026-08-19T10:00:05.000Z",
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1/DVWA/vulnerabilities/csrf/?password_new=meow&password_conf=meow&Change=Change",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {
+              "name": "PHPSESSID",
+              "value": "test-session-fake-0001"
+            },
+            {
+              "name": "security",
+              "value": "low"
+            }
+          ],
+          "headers": [
+            {
+              "name": "Host",
+              "value": "127.0.0.1"
+            },
+            {
+              "name": "Cookie",
+              "value": "PHPSESSID=test-session-fake-0001; security=low"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "password_new",
+              "value": "meow"
+            },
+            {
+              "name": "password_conf",
+              "value": "meow"
+            },
+            {
+              "name": "Change",
+              "value": "Change"
+            }
+          ],
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/html; charset=UTF-8"
+            }
+          ],
+          "content": {
+            "size": 256,
+            "mimeType": "text/html; charset=UTF-8",
+            "text": "<!DOCTYPE html><html lang=\"en-GB\"><head><title>Vulnerability: CSRF :: Damn Vulnerable Web Application (DVWA)</title></head><body><div id=\"main_body\"><h1>Vulnerability: Cross Site Request Forgery (CSRF)</h1><pre>Password Changed.</pre></div></body></html>"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "cache": {},
+        "timings": {
+          "send": 0,
+          "wait": 8,
+          "receive": 1
+        }
+      },
+      {
+        "startedDateTime": "2026-08-19T10:00:10.000Z",
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1/DVWA/vulnerabilities/csrf/?unrelated=1",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {
+              "name": "PHPSESSID",
+              "value": "test-session-fake-0001"
+            }
+          ],
+          "headers": [
+            {
+              "name": "Host",
+              "value": "127.0.0.1"
+            }
+          ],
+          "queryString": [
+            {
+              "name": "unrelated",
+              "value": "1"
+            }
+          ],
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/html; charset=UTF-8"
+            }
+          ],
+          "content": {
+            "size": 64,
+            "mimeType": "text/html; charset=UTF-8",
+            "text": "<!DOCTYPE html><html><body><p>noise</p></body></html>"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "cache": {},
+        "timings": {
+          "send": 0,
+          "wait": 5,
+          "receive": 1
+        }
+      },
+      {
+        "startedDateTime": "2026-08-19T10:00:12.000Z",
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1/DVWA/security.php",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {
+              "name": "PHPSESSID",
+              "value": "test-session-fake-0001"
+            }
+          ],
+          "headers": [
+            {
+              "name": "Host",
+              "value": "127.0.0.1"
+            }
+          ],
+          "queryString": [],
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 200,
+          "statusText": "OK",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Content-Type",
+              "value": "text/html; charset=UTF-8"
+            }
+          ],
+          "content": {
+            "size": 400,
+            "mimeType": "text/html; charset=UTF-8",
+            "text": "<!DOCTYPE html><html><head><title>DVWA Security</title></head><body><h1>DVWA Security</h1><form action=\"#\" method=\"POST\"><input type=\"hidden\" name=\"csrf_token\" value=\"test-token-fake-abc123\"><select name=\"security_level\"><option value=\"low\">low</option></select><input type=\"submit\" name=\"seclev_submit\" value=\"Submit\"></form></body></html>"
+          },
+          "redirectURL": "",
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "cache": {},
+        "timings": {
+          "send": 0,
+          "wait": 4,
+          "receive": 1
+        }
+      },
+      {
+        "startedDateTime": "2026-08-19T10:00:15.000Z",
+        "request": {
+          "method": "POST",
+          "url": "http://127.0.0.1/DVWA/security.php",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [
+            {
+              "name": "PHPSESSID",
+              "value": "test-session-fake-0001"
+            }
+          ],
+          "headers": [
+            {
+              "name": "Host",
+              "value": "127.0.0.1"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ],
+          "postData": {
+            "mimeType": "application/x-www-form-urlencoded",
+            "params": [
+              {
+                "name": "csrf_token",
+                "value": "test-token-fake-abc123"
+              },
+              {
+                "name": "security_level",
+                "value": "low"
+              },
+              {
+                "name": "seclev_submit",
+                "value": "Submit"
+              }
+            ]
+          },
+          "queryString": [],
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "response": {
+          "status": 302,
+          "statusText": "Found",
+          "httpVersion": "HTTP/1.1",
+          "cookies": [],
+          "headers": [
+            {
+              "name": "Location",
+              "value": "/DVWA/security.php"
+            }
+          ],
+          "content": {
+            "size": 0,
+            "mimeType": "text/html; charset=UTF-8",
+            "text": ""
+          },
+          "redirectURL": "/DVWA/security.php",
+          "headersSize": -1,
+          "bodySize": -1
+        },
+        "cache": {},
+        "timings": {
+          "send": 0,
+          "wait": 6,
+          "receive": 1
+        }
+      }
+    ]
+  }
+}

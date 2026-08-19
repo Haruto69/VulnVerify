@@ -316,6 +316,10 @@ def _verify_csrf_finding(
         insufficient_scanner_data=False,
         nondeterministic_result=False,
 
+        scanner_related_signal_only=(
+            _is_har_derived_csrf_candidate(finding)
+        ),
+
         verification_confidence=(
             _verification_confidence(
                 defense_observation=(
@@ -335,6 +339,28 @@ def _verify_csrf_finding(
     )
 
     return verified
+
+
+def _is_har_derived_csrf_candidate(
+    finding,
+) -> bool:
+    """
+    True only for a CSRF finding produced by the structural HAR
+    candidate detector (backend/verification/csrf_candidate_detection.py
+    via backend/parsers/zap_har.py), never for a scanner-emitted
+    alert.
+
+    Traffic-derived candidates are weaker evidence than an explicit
+    scanner alert -- no scanner ever asserted "this is CSRF," only
+    that a tokenless form and a structurally matching request exist.
+    scanner_related_signal_only tells the existing, unmodified CSRF
+    classifier to require independent replay evidence rather than
+    ever treating this candidate's mere existence as sufficient.
+    """
+
+    return (
+        finding.metadata.get("csrf_candidate_source") is not None
+    )
 
 
 def _verify_time_based_sqli_finding(

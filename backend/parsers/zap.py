@@ -16,6 +16,7 @@ from backend.models.normalized_finding import (
     VulnerabilityInfo,
 )
 from backend.parsers.base import BaseParser
+from backend.parsers.zap_har import is_har_report, parse_har_report
 
 
 class ZapParser(BaseParser):
@@ -40,6 +41,39 @@ class ZapParser(BaseParser):
             report = json.loads(content.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError("Invalid ZAP JSON report") from exc
+
+        # HAR (log.entries[]) is a distinct export shape from ZAP's
+        # own Traditional JSON alert report -- it carries raw
+        # captured traffic with no scanner risk judgment at all, so
+        # it is routed to a completely separate parsing path
+        # (backend/parsers/zap_har.py) rather than being forced
+        # through alert-shaped parsing. This check is unambiguous
+        # (HAR's top-level shape is exclusively {"log": {...}} per
+        # spec) and never guesses from file extension or content
+        # substrings.
+        if is_har_report(report):
+            return parse_har_report(
+                report=report,
+                scan_id=scan_id,
+            )
+
+        return self._parse_traditional_alerts(
+            report=report,
+            scan_id=scan_id,
+        )
+
+    def _parse_traditional_alerts(
+        self,
+        report: dict,
+        scan_id: str,
+    ) -> list[NormalizedFinding]:
+        """
+        ZAP's "Traditional JSON Report" (alerts + instances) path.
+
+        Unchanged from before HAR support was added -- byte-for-byte
+        the same validation and construction logic, just moved into
+        its own method so `parse()` can dispatch to it.
+        """
 
         if report.get("@programName") != "ZAP":
             raise ValueError("JSON report is not an OWASP ZAP report")
