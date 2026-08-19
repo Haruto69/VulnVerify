@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   ScanLine,
@@ -15,6 +15,8 @@ import {
   XCircle,
   Clock3,
   Download,
+  Sun,
+  Moon,
   HelpCircle as UnknownIcon,
 } from "lucide-react";
 
@@ -33,10 +35,35 @@ import {
   priorityClassName,
   statusClassName,
 } from "./utils/verification";
+import { applyTheme, getInitialTheme, storeTheme } from "./theme";
 
 function App() {
   const [activePage, setActivePage] = useState("Dashboard");
+  // Applied synchronously (not in an effect) so the very first paint
+  // already has the right theme -- an effect would run after paint
+  // and cause a visible light->dark flash on load.
+  const [theme, setTheme] = useState(() => {
+    const initial = getInitialTheme();
+    applyTheme(initial);
+    return initial;
+  });
   const scan = useScanData();
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  // Only an explicit toggle is persisted -- until the user actually
+  // chooses, the app keeps following the OS-level
+  // prefers-color-scheme on every reload rather than freezing
+  // whatever it happened to resolve to on first load.
+  const toggleTheme = () => {
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      storeTheme(next);
+      return next;
+    });
+  };
 
   const menuItems = [
     { name: "Dashboard", icon: LayoutDashboard },
@@ -120,6 +147,8 @@ function App() {
           </div>
 
           <div className="top-actions">
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+
             <button
               className="new-scan-button"
               onClick={() => setActivePage("New Scan")}
@@ -273,70 +302,18 @@ function Dashboard({ scan, onNavigate }) {
       </section>
 
       <section className="analysis-grid">
-        <div className="panel scanner-panel">
-          <div className="panel-header">
-            <div>
-              <h3>Scanner Output vs Verified Findings</h3>
-              <p>
-                {hasScan
-                  ? `${rawCount} raw scanner findings, ${verifiedCount} verified so far`
-                  : "Upload a scan to see this breakdown"}
-              </p>
-            </div>
-          </div>
-
-          <div className="bar-row">
-            <div className="bar-label">
-              <span>Raw scanner findings</span>
-              <strong>{rawCount}</strong>
-            </div>
-            <div className="bar">
-              <div className="bar-blue" style={{ width: "100%" }}>
-                {rawCount}
-              </div>
-            </div>
-          </div>
-
-          <div className="bar-row">
-            <div className="bar-label">
-              <span>Confirmed true positives</span>
-              <strong>{counts.truePositive}</strong>
-            </div>
-            <div className="bar">
-              <div
-                className="bar-green"
-                style={{
-                  width:
-                    rawCount > 0
-                      ? `${Math.max(
-                          (counts.truePositive / rawCount) * 100,
-                          counts.truePositive > 0 ? 4 : 0
-                        )}%`
-                      : "0%",
-                }}
-              >
-                {counts.truePositive}
-              </div>
-            </div>
-          </div>
-
-          <div className="legend">
-            <span>
-              <i className="dot green"></i>
-              Confirmed true positives — {counts.truePositive}
-            </span>
-            <span>
-              <i className="dot red"></i>
-              False positives removed — {counts.falsePositive}
-            </span>
-            <span>
-              <i className="dot orange"></i>
-              Inconclusive — {counts.inconclusive}
-            </span>
-          </div>
-        </div>
-
-        <VerificationPerformancePanel scan={scan} hasScan={hasScan} />
+        <FindingVerificationPanel
+          hasScan={hasScan}
+          counts={counts}
+          rawCount={rawCount}
+        />
+        <ScanSummaryPanel
+          hasScan={hasScan}
+          scan={scan}
+          rawCount={rawCount}
+          verifiedCount={verifiedCount}
+          pending={counts.unverified}
+        />
       </section>
 
       <section className="panel risks-panel">
@@ -412,110 +389,137 @@ function StatCard({ title, value, subtitle, type }) {
   );
 }
 
+// Presentational only -- reverses the New Scan dropdown's display
+// mapping (utils/verification.js toBackendScannerValue) so the raw
+// backend value ("ZAP"/"BURP") already stored on scan.scanMeta reads
+// naturally on the Dashboard. Falls back to the raw value for
+// anything unrecognized rather than inventing a label.
+function scannerDisplayName(rawValue) {
+  if (rawValue === "ZAP") return "OWASP ZAP";
+  if (rawValue === "BURP") return "Burp Suite";
+  return rawValue;
+}
+
 /**
- * Verification Performance panel.
- *
- * Precision/recall/F1 are only ever shown when the backend has
- * actually computed them from explicit ground-truth labels (see
- * GET /scans/{scan_id}/metrics) -- there is no fallback that derives
- * these numbers from verification results alone, since a verifier's
- * own output can never serve as ground truth for evaluating itself.
+ * Left panel of the Dashboard's overview row: how this scan's
+ * findings were classified. Reuses the same counts the KPI row
+ * above already computed -- nothing here is calculated separately.
  */
-function VerificationPerformancePanel({ scan, hasScan }) {
-  const metrics = scan.metrics;
-
-  const formatPercent = (value) =>
-    value === null || value === undefined
-      ? "N/A"
-      : `${(value * 100).toFixed(1)}%`;
-
-  const handleLoadDemoGroundTruth = async () => {
-    try {
-      await scan.loadDemoGroundTruth();
-    } catch {
-      // surfaced via scan.groundTruthError below
-    }
-  };
+function FindingVerificationPanel({ hasScan, counts, rawCount }) {
+  const rows = [
+    { label: "Confirmed", value: counts.truePositive, barClass: "bar-green" },
+    {
+      label: "False Positive",
+      value: counts.falsePositive,
+      barClass: "bar-red",
+    },
+    {
+      label: "Inconclusive",
+      value: counts.inconclusive,
+      barClass: "bar-orange",
+    },
+    { label: "Unverified", value: counts.unverified, barClass: "bar-gray" },
+  ];
 
   return (
-    <div className="panel performance-panel">
+    <div className="panel verification-breakdown-panel">
       <div className="panel-header">
         <div>
-          <h3>Verification Performance</h3>
-          <p>Measured against labeled ground-truth data</p>
+          <h3>Finding Verification</h3>
+          <p>How scanner findings were classified</p>
         </div>
       </div>
 
       {!hasScan ? (
-        <EmptyState text="Upload a scan to see verification performance." />
-      ) : !metrics ? (
-        <EmptyState text="Loading metrics..." />
-      ) : metrics.ground_truth_count === 0 ? (
-        <div className="ground-truth-empty">
-          <EmptyState text="Ground truth not available for this scan." />
-          <button
-            className="view-button"
-            onClick={handleLoadDemoGroundTruth}
-            disabled={scan.loadingGroundTruth}
-          >
-            {scan.loadingGroundTruth
-              ? "Loading..."
-              : "Load demo ground truth"}
-          </button>
-          {scan.groundTruthError && (
-            <ErrorBanner
-              message={`Could not load ground truth: ${scan.groundTruthError.message}`}
-            />
-          )}
+        <EmptyState text="Upload a scan to see this breakdown." />
+      ) : (
+        rows.map((row) => (
+          <div className="bar-row" key={row.label}>
+            <div className="bar-label">
+              <span>{row.label}</span>
+              <strong>{row.value}</strong>
+            </div>
+            <div className="bar">
+              <div
+                className={row.barClass}
+                style={{
+                  width:
+                    rawCount > 0
+                      ? `${Math.max(
+                          (row.value / rawCount) * 100,
+                          row.value > 0 ? 4 : 0
+                        )}%`
+                      : "0%",
+                }}
+              >
+                {row.value > 0 ? row.value : ""}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * Right panel of the Dashboard's overview row: a compact scan-health
+ * summary. Every field is read directly from scan.scanMeta or the
+ * already-computed counts -- no timestamp is shown because the
+ * backend's scan record does not carry one.
+ */
+function ScanSummaryPanel({ hasScan, scan, rawCount, verifiedCount, pending }) {
+  return (
+    <div className="panel scan-summary-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Scan Summary</h3>
+          <p>Current state of this scan</p>
         </div>
-      ) : metrics.evaluated_count === 0 ? (
-        <EmptyState
-          text={`${metrics.ground_truth_count} finding(s) have ground-truth labels, but none have a usable verification result yet (unverified: ${metrics.unverified_ground_truth_count}, inconclusive: ${metrics.excluded_inconclusive_count}). Verify those findings to compute metrics.`}
-        />
+      </div>
+
+      {!hasScan ? (
+        <EmptyState text="Upload a scan to see its summary." />
       ) : (
         <>
           <div className="metric-line">
-            <span>Precision</span>
-            <strong>{formatPercent(metrics.precision)}</strong>
+            <span>Scanner</span>
+            <strong>{scannerDisplayName(scan.scanMeta.scanner)}</strong>
           </div>
           <div className="metric-line">
-            <span>Recall</span>
-            <strong>{formatPercent(metrics.recall)}</strong>
+            <span>File</span>
+            <strong>{scan.scanMeta.filename}</strong>
           </div>
           <div className="metric-line">
-            <span>F1 Score</span>
-            <strong>{formatPercent(metrics.f1)}</strong>
+            <span>Raw findings</span>
+            <strong>{rawCount}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Verified</span>
+            <strong>{verifiedCount}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Pending</span>
+            <strong>{pending}</strong>
           </div>
 
-          <div className="mini-matrix">
-            <div></div>
-            <strong>PRED. TRUE</strong>
-            <strong>PRED. FALSE</strong>
-            <strong>ACTUAL TRUE</strong>
-            <span className="matrix-good">
-              {metrics.true_positive}
-            </span>
-            <span className="matrix-bad">
-              {metrics.false_negative}
-            </span>
-            <strong>ACTUAL FALSE</strong>
-            <span className="matrix-bad">
-              {metrics.false_positive}
-            </span>
-            <span className="matrix-good">
-              {metrics.true_negative}
-            </span>
+          <div
+            className={`scan-status-indicator ${
+              pending === 0 ? "complete" : "pending"
+            }`}
+          >
+            {pending === 0 ? (
+              <>
+                <CheckCircle2 size={14} />
+                Verification complete
+              </>
+            ) : (
+              <>
+                <Clock3 size={14} />
+                Verification pending — {pending} remaining
+              </>
+            )}
           </div>
-
-          {(metrics.unverified_ground_truth_count > 0 ||
-            metrics.excluded_inconclusive_count > 0) && (
-            <p className="metrics-footnote">
-              {metrics.evaluated_count} of {metrics.ground_truth_count}{" "}
-              labeled finding(s) scored (unverified:{" "}
-              {metrics.unverified_ground_truth_count}, inconclusive:{" "}
-              {metrics.excluded_inconclusive_count}).
-            </p>
-          )}
         </>
       )}
     </div>
@@ -1424,81 +1428,274 @@ function ReportsPage({ scan }) {
    METRICS
 ========================= */
 
+function formatMetricPercent(value) {
+  return value === null || value === undefined
+    ? "N/A"
+    : `${(value * 100).toFixed(1)}%`;
+}
+
 /**
- * Full-detail evaluation view for the current scan. Reuses the same
- * scan.metrics data and VerificationPerformancePanel component the
- * Dashboard uses -- this page adds the raw counts (ground truth,
- * evaluated, unverified, inconclusive) the Dashboard's condensed
- * panel doesn't have room for, but never computes anything itself.
+ * Evaluation analytics page: "how well did verification perform,"
+ * as opposed to the Dashboard's "what happened in this scan."
+ *
+ * Precision/recall/F1/confusion-matrix values only ever come from
+ * scan.metrics (GET /scans/{scan_id}/metrics) -- nothing here is
+ * derived from verification results directly, since a verifier's own
+ * output can never serve as ground truth for evaluating itself. The
+ * four states below (no scan / loading / no ground truth / ground
+ * truth but nothing evaluated) mirror the backend's own evaluation
+ * semantics rather than inventing new ones.
  */
 function MetricsPage({ scan }) {
   const hasScan = Boolean(scan.scanId);
   const metrics = scan.metrics;
 
+  const handleLoadDemoGroundTruth = async () => {
+    try {
+      await scan.loadDemoGroundTruth();
+    } catch {
+      // surfaced via scan.groundTruthError below
+    }
+  };
+
   return (
     <div className="metrics-page">
       <div className="page-description">
         <div>
-          <h2>Verification Evaluation Metrics</h2>
+          <h2>Verification Metrics</h2>
           <p>
-            {hasScan
-              ? `Precision, recall, and F1 for `
-              : "No scan loaded yet — "}
-            <strong>
-              {hasScan
-                ? scan.scanMeta.filename
-                : "upload a scan to see evaluation metrics"}
-            </strong>
-            {hasScan &&
-              ", computed only from explicit ground-truth labels."}
+            Measure verification accuracy against labeled ground-truth
+            data.
           </p>
+          {hasScan && (
+            <span className="metrics-scan-chip">
+              {scan.scanMeta.filename}
+            </span>
+          )}
         </div>
       </div>
 
       {!hasScan ? (
-        <EmptyState text="Upload a scan to see evaluation metrics." />
+        <EmptyState text="No scan loaded — upload a scan to view verification metrics." />
+      ) : !metrics ? (
+        <EmptyState text="Loading metrics..." />
+      ) : metrics.ground_truth_count === 0 ? (
+        <div className="panel metrics-empty-panel">
+          <div className="ground-truth-empty">
+            <EmptyState text="No ground-truth labels available for this scan. Precision, recall, and F1 cannot be calculated without labeled ground-truth data." />
+            {/* Dev/test-only affordance for exercising the demo
+                ground-truth dataset (backend/data/demo_ground_truth_labels.json).
+                Never rendered in a production build -- ground truth
+                in the real product is supplied by
+                POST /scans/{scan_id}/ground-truth, not invented here. */}
+            {import.meta.env.DEV && (
+              <>
+                <button
+                  className="view-button"
+                  onClick={handleLoadDemoGroundTruth}
+                  disabled={scan.loadingGroundTruth}
+                >
+                  {scan.loadingGroundTruth
+                    ? "Loading..."
+                    : "(dev) Load demo ground truth"}
+                </button>
+                {scan.groundTruthError && (
+                  <ErrorBanner
+                    message={`Could not load ground truth: ${scan.groundTruthError.message}`}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      ) : metrics.evaluated_count === 0 ? (
+        <div className="panel metrics-empty-panel">
+          <EmptyState
+            text={`${metrics.ground_truth_count} finding(s) have ground-truth labels, but none have a usable verification result yet (unverified: ${metrics.unverified_ground_truth_count}, inconclusive: ${metrics.excluded_inconclusive_count}). Verify those findings to compute metrics.`}
+          />
+        </div>
       ) : (
         <>
-          {metrics && (
-            <section className="stats-grid">
-              <StatCard
-                title="EVALUATION SCOPE"
-                value="This scan"
-                subtitle={scan.scanMeta.filename}
-                type="blue"
-              />
-              <StatCard
-                title="GROUND TRUTH LABELS"
-                value={String(metrics.ground_truth_count)}
-                subtitle="Labeled findings"
-                type="purple"
-              />
-              <StatCard
-                title="EVALUATED FINDINGS"
-                value={String(metrics.evaluated_count)}
-                subtitle="Scored TP/FP/TN/FN"
-                type="green"
-              />
-              <StatCard
-                title="UNVERIFIED LABELS"
-                value={String(metrics.unverified_ground_truth_count)}
-                subtitle="Labeled, not yet verified"
-                type="orange"
-              />
-              <StatCard
-                title="INCONCLUSIVE"
-                value={String(metrics.excluded_inconclusive_count)}
-                subtitle="Excluded from matrix"
-                type="orange"
-              />
-            </section>
-          )}
+          <section className="metrics-kpi-grid">
+            <MetricKpiCard
+              accent="blue"
+              label="Precision"
+              value={formatMetricPercent(metrics.precision)}
+              description="Of predicted positives, how many were correct"
+            />
+            <MetricKpiCard
+              accent="green"
+              label="Recall"
+              value={formatMetricPercent(metrics.recall)}
+              description="Of actual positives, how many were detected"
+            />
+            <MetricKpiCard
+              accent="purple"
+              label="F1 Score"
+              value={formatMetricPercent(metrics.f1)}
+              description="Balance between precision and recall"
+            />
+            <MetricKpiCard
+              accent="orange"
+              label="Evaluated Findings"
+              value={String(metrics.evaluated_count)}
+              description="Scored against ground truth"
+            />
+          </section>
 
-          <section className="analysis-grid single-panel">
-            <VerificationPerformancePanel scan={scan} hasScan={hasScan} />
+          <section className="metrics-analysis-grid">
+            <ConfusionMatrixPanel metrics={metrics} />
+            <EvaluationCoveragePanel metrics={metrics} />
+          </section>
+
+          <section className="panel metrics-panel evaluation-details">
+            <div className="panel-header">
+              <div>
+                <h3>Evaluation Details</h3>
+                <p>Context for the numbers above</p>
+              </div>
+            </div>
+
+            <div className="evaluation-details-grid">
+              <div>
+                <span>Scan</span>
+                <strong>{scan.scanMeta.filename}</strong>
+              </div>
+              <div>
+                <span>Ground truth labels</span>
+                <strong>{metrics.ground_truth_count}</strong>
+              </div>
+              <div>
+                <span>Evaluated findings</span>
+                <strong>{metrics.evaluated_count}</strong>
+              </div>
+              <div>
+                <span>Unverified labels</span>
+                <strong>{metrics.unverified_ground_truth_count}</strong>
+              </div>
+              <div>
+                <span>Inconclusive</span>
+                <strong>{metrics.excluded_inconclusive_count}</strong>
+              </div>
+            </div>
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+function MetricKpiCard({ accent, label, value, description }) {
+  return (
+    <div className={`metrics-kpi-card ${accent}`}>
+      <div className="metrics-kpi-label">{label}</div>
+      <div className="metrics-kpi-value">{value}</div>
+      <div className="metrics-kpi-description">{description}</div>
+    </div>
+  );
+}
+
+function ConfusionMatrixPanel({ metrics }) {
+  return (
+    <div className="panel metrics-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Confusion Matrix</h3>
+          <p>Verified status vs. labeled ground truth</p>
+        </div>
+      </div>
+
+      <div className="confusion-matrix">
+        <div className="confusion-matrix-corner" />
+        <div className="confusion-matrix-col-header">
+          Predicted
+          <br />
+          Positive
+        </div>
+        <div className="confusion-matrix-col-header">
+          Predicted
+          <br />
+          Negative
+        </div>
+
+        <div className="confusion-matrix-row-header">
+          Actual
+          <br />
+          Positive
+        </div>
+        <div className="confusion-matrix-cell good">
+          <span className="confusion-matrix-value">
+            {metrics.true_positive}
+          </span>
+          <span className="confusion-matrix-label">True Positive</span>
+        </div>
+        <div className="confusion-matrix-cell bad">
+          <span className="confusion-matrix-value">
+            {metrics.false_negative}
+          </span>
+          <span className="confusion-matrix-label">False Negative</span>
+        </div>
+
+        <div className="confusion-matrix-row-header">
+          Actual
+          <br />
+          Negative
+        </div>
+        <div className="confusion-matrix-cell bad">
+          <span className="confusion-matrix-value">
+            {metrics.false_positive}
+          </span>
+          <span className="confusion-matrix-label">False Positive</span>
+        </div>
+        <div className="confusion-matrix-cell good">
+          <span className="confusion-matrix-value">
+            {metrics.true_negative}
+          </span>
+          <span className="confusion-matrix-label">True Negative</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvaluationCoveragePanel({ metrics }) {
+  const coverage =
+    metrics.ground_truth_count > 0
+      ? `${Math.round(
+          (metrics.evaluated_count / metrics.ground_truth_count) * 100
+        )}%`
+      : "N/A";
+
+  return (
+    <div className="panel metrics-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Evaluation Coverage</h3>
+          <p>How much of the labeled data was scored</p>
+        </div>
+      </div>
+
+      <div className="metric-line">
+        <span>Ground truth labels</span>
+        <strong>{metrics.ground_truth_count}</strong>
+      </div>
+      <div className="metric-line">
+        <span>Evaluated</span>
+        <strong>{metrics.evaluated_count}</strong>
+      </div>
+      <div className="metric-line">
+        <span>Unverified</span>
+        <strong>{metrics.unverified_ground_truth_count}</strong>
+      </div>
+      <div className="metric-line">
+        <span>Inconclusive</span>
+        <strong>{metrics.excluded_inconclusive_count}</strong>
+      </div>
+
+      <div className="evaluation-coverage-total">
+        <span>Evaluation coverage</span>
+        <strong>{coverage}</strong>
+      </div>
     </div>
   );
 }
@@ -1715,6 +1912,23 @@ function HelpPage() {
 /* =========================
    SHARED UI PRIMITIVES
 ========================= */
+
+function ThemeToggle({ theme, onToggle }) {
+  const isDark = theme === "dark";
+
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      onClick={onToggle}
+      aria-pressed={isDark}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {isDark ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  );
+}
 
 function ErrorBanner({ message }) {
   return (
