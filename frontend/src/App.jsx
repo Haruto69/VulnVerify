@@ -36,6 +36,8 @@ import {
   UploadCloud,
   Rocket,
   LifeBuoy,
+  FileCheck2,
+  Workflow,
   HelpCircle as UnknownIcon,
 } from "lucide-react";
 
@@ -244,9 +246,14 @@ function Sidebar({
       >
         <div className="brand">
           <div className="brand-icon">
-            <ShieldCheck size={21} />
+            <ShieldCheck size={18} />
           </div>
-          {!collapsed && <span>VeriTriage</span>}
+          {!collapsed && (
+            <div className="brand-text">
+              <span>VulnVerify</span>
+              <span className="brand-subtitle">Security Platform</span>
+            </div>
+          )}
 
           <button
             type="button"
@@ -532,7 +539,7 @@ function Dashboard({ scan, onNavigate }) {
         <DashboardLoadingState />
       ) : (
         <>
-          <section className="dashboard-kpi-grid">
+          <section className="dashboard-stat-strip">
             {kpis.map(({ key, ...kpi }) => (
               <DashboardKpiCard key={key} {...kpi} />
             ))}
@@ -925,176 +932,196 @@ function NewScan({ scan, onUploaded }) {
   };
 
   const uploading = scan.uploadState === "uploading";
+  const hasFile = Boolean(fileObject);
+
+  const PIPELINE_STEPS = [
+    { title: "Ingest", text: "The uploaded report is stored and queued for parsing." },
+    { title: "Normalize", text: "Runs immediately on upload -- the raw report becomes a common finding format." },
+    { title: "Replay", text: "Real requests are replayed against the target, per finding." },
+    { title: "Verify", text: "Replay evidence is classified TRUE_POSITIVE / FALSE_POSITIVE / INCONCLUSIVE." },
+    { title: "Deduplicate", text: "Verified findings are grouped by unique vulnerability." },
+    { title: "Enrich", text: "CWE/OWASP reference context is attached automatically." },
+    { title: "Prioritize", text: "Priority is computed from verification status and scanner severity." },
+  ];
 
   return (
-    <div className="new-scan-prototype">
-      <div className="new-scan-heading">
+    <div className="new-scan-page">
+      <div className="page-description">
         <div>
-          <div className="breadcrumb">
-            Dashboard <span>/</span> New Scan
-          </div>
-          <h1>Start New Security Scan</h1>
+          <h2>Start New Security Scan</h2>
+          <p>
+            Upload a scanner report to automatically verify findings and
+            generate an evidence-backed report.
+          </p>
         </div>
       </div>
 
-      <p className="new-scan-intro">
-        Upload a scanner report to automatically verify findings and generate
-        an evidence-backed report.
-      </p>
+      <div className="new-scan-grid">
+        <div className="new-scan-main">
+          {/* UPLOAD AREA */}
+          <section
+            className={
+              dragActive
+                ? "upload-card drag-active"
+                : hasFile
+                ? "upload-card has-file"
+                : "upload-card"
+            }
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {hasFile ? (
+              <>
+                <div className="upload-icon success">
+                  <FileCheck2 size={24} />
+                </div>
+                <h3>File ready to upload</h3>
+                <div className="upload-file-chip">
+                  <FileText size={14} />
+                  <span>{fileName}</span>
+                  <button
+                    type="button"
+                    className="upload-file-remove"
+                    onClick={() => {
+                      setFileName("");
+                      setFileObject(null);
+                    }}
+                    aria-label="Remove selected file"
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="upload-icon">
+                  <UploadCloud size={24} />
+                </div>
+                <h3>Drop your scanner report here</h3>
+                <p>or browse files from your computer</p>
+              </>
+            )}
 
-      {/* UPLOAD AREA */}
-      <section
-        className={dragActive ? "upload-card drag-active" : "upload-card"}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <div className="upload-icon">
-          <UploadCloud size={22} />
+            <label className="browse-files">
+              {hasFile ? "Choose a different file" : "Browse Files"}
+              <input
+                type="file"
+                accept=".json,.xml"
+                onChange={handleFile}
+                hidden
+              />
+            </label>
+
+            <div className="supported-files">
+              <span className="supported-files-chip">OWASP ZAP · JSON</span>
+              <span className="supported-files-chip">Burp Suite · XML</span>
+            </div>
+
+            {formError && <ErrorBanner message={formError} />}
+
+            {scan.uploadState === "success" && scan.scanMeta && (
+              <div className="upload-success-banner">
+                <CheckCircle2 size={15} />
+                <span>
+                  Uploaded -- {scan.scanMeta.finding_count} findings
+                  normalized (scan_id: {scan.scanMeta.scan_id})
+                </span>
+              </div>
+            )}
+
+            <AutoVerificationProgress progress={scan.verificationProgress} />
+
+            <div className="new-scan-actions">
+              <button
+                className="start-verification-button"
+                onClick={startVerification}
+                disabled={uploading}
+              >
+                {uploading ? "Uploading..." : "Upload Scan"}
+              </button>
+
+              <button className="demo-dataset-button" onClick={useDemoDataset}>
+                Use Demo Dataset
+              </button>
+            </div>
+          </section>
+
+          {/* SCAN CONFIGURATION */}
+          <section className="panel scan-configuration">
+            <div className="panel-header">
+              <div>
+                <h3>Scan configuration</h3>
+                <p>
+                  Reference-only context -- does not change what gets
+                  uploaded or verified.
+                </p>
+              </div>
+            </div>
+
+            <div className="configuration-grid">
+              <div className="form-field">
+                <label>Target application</label>
+                <input
+                  type="text"
+                  value={target}
+                  onChange={(e) => setTarget(e.target.value)}
+                  placeholder="https://test-app.local"
+                />
+              </div>
+
+              <div className="form-field">
+                <label>Scanner type</label>
+                <select
+                  value={scannerType}
+                  onChange={(e) => setScannerType(e.target.value)}
+                >
+                  <option>OWASP ZAP</option>
+                  <option>Burp Suite</option>
+                </select>
+              </div>
+
+              <div className="form-field">
+                <label>Scan date</label>
+                <input
+                  type="text"
+                  value={scanDate}
+                  onChange={(e) => setScanDate(e.target.value)}
+                  placeholder="10 / 05 / 2024"
+                />
+              </div>
+
+              <div className="form-field notes-field">
+                <label>Notes (optional)</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add any context for this scan run..."
+                />
+              </div>
+            </div>
+          </section>
         </div>
-        <h3>Drop your scanner report here</h3>
-        <p>or browse files</p>
 
-        <label className="browse-files">
-          Browse Files
-          <input
-            type="file"
-            accept=".json,.xml"
-            onChange={handleFile}
-            hidden
-          />
-        </label>
-
-        <div className="supported-files">
-          OWASP ZAP JSON · Burp Suite XML
-        </div>
-
-        {fileName && (
-          <div className="selected-file">
-            Selected: <strong>{fileName}</strong>
-          </div>
-        )}
-
-        {formError && <ErrorBanner message={formError} />}
-
-        {scan.uploadState === "success" && scan.scanMeta && (
-          <div className="selected-file">
-            ✓ Uploaded — {scan.scanMeta.finding_count} findings normalized
-            (scan_id: {scan.scanMeta.scan_id})
-          </div>
-        )}
-
-        <AutoVerificationProgress progress={scan.verificationProgress} />
-      </section>
-
-      {/* SCAN CONFIGURATION */}
-      <section className="scan-configuration">
-        <div className="section-label">SCAN CONFIGURATION</div>
-
-        <div className="configuration-grid">
-          <div className="form-field">
-            <label>Target Application (reference only)</label>
-            <input
-              type="text"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              placeholder="https://test-app.local"
-            />
-          </div>
-
-          <div className="form-field">
-            <label>Scanner Type</label>
-            <select
-              value={scannerType}
-              onChange={(e) => setScannerType(e.target.value)}
-            >
-              <option>OWASP ZAP</option>
-              <option>Burp Suite</option>
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label>Scan Date (reference only)</label>
-            <input
-              type="text"
-              value={scanDate}
-              onChange={(e) => setScanDate(e.target.value)}
-              placeholder="10 / 05 / 2024"
-            />
-          </div>
-
-          <div className="form-field notes-field">
-            <label>Notes (optional, reference only)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add any context for this scan run..."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* AUTOMATED PIPELINE */}
-      <section className="pipeline-card">
-        <div className="section-label">AUTOMATED PIPELINE</div>
-
-        <div className="pipeline">
-          <div className="pipeline-step">
-            <span>1</span>
-            <strong>Ingest</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>2</span>
-            <strong>Normalize</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>3</span>
-            <strong>Replay</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>4</span>
-            <strong>Verify</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>5</span>
-            <strong>Deduplicate</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>6</span>
-            <strong>Enrich</strong>
-          </div>
-          <div className="pipeline-line">→</div>
-          <div className="pipeline-step">
-            <span>7</span>
-            <strong>Prioritize</strong>
-          </div>
-        </div>
-
-        <p className="pipeline-description">
-          Upload runs Ingest + Normalize immediately. Replay/Verify runs
-          per finding from the Findings page. Deduplicate/Enrich/Prioritize
-          are computed live from whatever has been verified so far.
-        </p>
-      </section>
-
-      {/* ACTIONS */}
-      <div className="new-scan-actions">
-        <button
-          className="start-verification-button"
-          onClick={startVerification}
-          disabled={uploading}
-        >
-          {uploading ? "Uploading..." : "Upload Scan"}
-        </button>
-
-        <button className="demo-dataset-button" onClick={useDemoDataset}>
-          Use Demo Dataset
-        </button>
+        <aside className="new-scan-side">
+          <section className="panel help-panel new-scan-pipeline-panel">
+            <div className="help-panel-title">
+              <Workflow size={16} />
+              <h3>Automated pipeline</h3>
+            </div>
+            <ol className="help-timeline">
+              {PIPELINE_STEPS.map((step, index) => (
+                <li key={step.title}>
+                  <span className="help-timeline-marker">{index + 1}</span>
+                  <div className="help-timeline-content">
+                    <strong>{step.title}</strong>
+                    <p>{step.text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </aside>
       </div>
     </div>
   );
@@ -1268,14 +1295,23 @@ function ScanHistoryPage({ scan, onNavigate }) {
   // ordering information (not an invented one) -- it just isn't a
   // date.
   const ordered = [...scans].reverse();
+  const normalizedCount = scans.filter((s) => s.status === "NORMALIZED").length;
+  const failedCount = scans.filter((s) => s.status === "FAILED").length;
 
   return (
     <div className="scan-history-page">
-      <div className="page-description">
+      <div className="page-description scan-history-header-row">
         <div>
           <h2>Scan History</h2>
           <p>Previously uploaded security scans</p>
         </div>
+        <button
+          className="new-scan-button"
+          onClick={() => onNavigate("New Scan")}
+        >
+          <Plus size={15} />
+          New Scan
+        </button>
       </div>
 
       {loading ? (
@@ -1296,43 +1332,88 @@ function ScanHistoryPage({ scan, onNavigate }) {
           </button>
         </div>
       ) : (
-        <div className="scan-history-list">
-          <div className="scan-history-header">
-            <span>Filename</span>
-            <span>Scanner</span>
-            <span>Status</span>
-            <span></span>
-          </div>
-
-          {ordered.map((item) => (
-            <button
-              key={item.scan_id}
-              type="button"
-              className={`scan-history-row ${
-                item.scan_id === scan.scanId ? "active" : ""
-              }`}
-              onClick={() => handleSelect(item.scan_id)}
-              disabled={selectingId === item.scan_id}
-            >
-              <div className="scan-history-filename">
-                <div className="scan-history-icon">
-                  <FileText size={15} />
-                </div>
-                <div>
-                  <strong>{item.filename}</strong>
-                  <small>{item.scan_id.slice(0, 8)}</small>
-                </div>
+        <>
+          <section className="dashboard-stat-strip scan-history-stat-strip">
+            <div className="dashboard-kpi-card">
+              <div className="dashboard-kpi-icon">
+                <History size={16} />
               </div>
-              <span>{scannerDisplayName(item.scanner)}</span>
-              <ScanStatusBadge status={item.status} />
-              {selectingId === item.scan_id ? (
-                <span className="scan-history-loading">Loading…</span>
-              ) : (
-                <ChevronRight size={16} />
-              )}
-            </button>
-          ))}
-        </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">TOTAL SCANS</div>
+                <div className="dashboard-kpi-value">{scans.length}</div>
+              </div>
+            </div>
+            <div className="dashboard-kpi-card green">
+              <div className="dashboard-kpi-icon">
+                <CheckCircle2 size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">NORMALIZED</div>
+                <div className="dashboard-kpi-value">{normalizedCount}</div>
+              </div>
+            </div>
+            <div className="dashboard-kpi-card red">
+              <div className="dashboard-kpi-icon">
+                <XCircle size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">FAILED</div>
+                <div className="dashboard-kpi-value">{failedCount}</div>
+              </div>
+            </div>
+          </section>
+
+          <div className="scan-history-list">
+            <div className="scan-history-header">
+              <span>Scan</span>
+              <span>Scanner</span>
+              <span>Status</span>
+              <span></span>
+            </div>
+
+            {ordered.map((item) => {
+              const isActive = item.scan_id === scan.scanId;
+              return (
+                <button
+                  key={item.scan_id}
+                  type="button"
+                  className={`scan-history-row ${isActive ? "active" : ""}`}
+                  onClick={() => handleSelect(item.scan_id)}
+                  disabled={selectingId === item.scan_id}
+                >
+                  <div className="scan-history-filename">
+                    <div className="scan-history-icon">
+                      <FileText size={15} />
+                    </div>
+                    <div>
+                      <div className="scan-history-name-row">
+                        <strong>{item.filename}</strong>
+                        {isActive && (
+                          <span className="scan-history-active-pill">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <small>{item.scan_id.slice(0, 8)}</small>
+                    </div>
+                  </div>
+                  <span className="scan-history-scanner">
+                    {scannerDisplayName(item.scanner)}
+                  </span>
+                  <ScanStatusBadge status={item.status} />
+                  {selectingId === item.scan_id ? (
+                    <span className="scan-history-loading">Loading…</span>
+                  ) : (
+                    <span className="scan-history-open">
+                      Open
+                      <ChevronRight size={14} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );
@@ -1472,8 +1553,12 @@ function FindingCard({
     verified || enrichment || finding.original_test?.evidence
   );
 
+  const severityClass = finding.vulnerability.normalized_severity
+    ? finding.vulnerability.normalized_severity.toLowerCase()
+    : "unknown";
+
   return (
-    <div className="finding-card">
+    <div className={`finding-card severity-${severityClass}`}>
       <div className="finding-top">
         <div className="finding-icon">
           <CategoryIcon category={finding.vulnerability.category} size={18} />
@@ -2002,18 +2087,89 @@ function VerifyForm({ family, finding, verifying, error, onSubmit }) {
    PRIORITIZED RISKS
 ========================= */
 
+const RISK_PRIORITY_ORDER = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"];
+
+function RiskPriorityCard({ priority, finding, index }) {
+  const p = priority;
+  const title =
+    finding?.source?.original_name ||
+    finding?.vulnerability?.category ||
+    "Unknown finding";
+
+  return (
+    <div className={`risk-priority-card ${p.priority.toLowerCase()}`}>
+      <div className="risk-priority-top">
+        <span className="risk-priority-rank">
+          #{String(index + 1).padStart(2, "0")}
+        </span>
+        <div className="risk-priority-icon">
+          <CategoryIcon category={finding?.vulnerability?.category} size={19} />
+        </div>
+        <div className="risk-priority-heading">
+          <h3>{title}</h3>
+          <p>{finding?.target?.normalized_url}</p>
+        </div>
+        <span className={`priority ${priorityClassName(p.priority)}`}>
+          {p.priority}
+        </span>
+      </div>
+
+      <div className="risk-priority-meta">
+        <div>
+          <span>Verification status</span>
+          <StatusBadge status={p.verification_status} />
+        </div>
+        <div>
+          <span>Scanner severity</span>
+          <strong>{p.scanner_severity}</strong>
+        </div>
+      </div>
+
+      <p className="risk-priority-reason">{p.reason}</p>
+    </div>
+  );
+}
+
+function RiskPriorityRow({ priority, finding }) {
+  const p = priority;
+  const title =
+    finding?.source?.original_name ||
+    finding?.vulnerability?.category ||
+    "Unknown finding";
+
+  return (
+    <div className="risk-priority-compact-row">
+      <div className="risk-priority-icon">
+        <CategoryIcon category={finding?.vulnerability?.category} size={15} />
+      </div>
+      <div className="risk-priority-compact-info">
+        <strong>{title}</strong>
+        <small>{finding?.target?.normalized_url}</small>
+      </div>
+      <StatusBadge status={p.verification_status} />
+      <span className="risk-priority-compact-severity">{p.scanner_severity}</span>
+      <span className={`priority ${priorityClassName(p.priority)}`}>
+        {p.priority}
+      </span>
+    </div>
+  );
+}
+
 function PrioritizedRisks({ scan }) {
   const hasScan = Boolean(scan.scanId);
   const priorities = Object.values(scan.priorityById);
 
-  const priorityOrder = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL"];
-  const sorted = [...priorities].sort(
-    (a, b) =>
-      priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority)
-  );
+  const grouped = RISK_PRIORITY_ORDER.map((level) => ({
+    level,
+    items: priorities.filter((p) => p.priority === level),
+  })).filter((group) => group.items.length > 0);
 
   const criticalCount = priorities.filter((p) => p.priority === "CRITICAL").length;
   const highCount = priorities.filter((p) => p.priority === "HIGH").length;
+  const otherCount = priorities.length - criticalCount - highCount;
+
+  const findingFor = (findingId) =>
+    scan.findings.find((f) => f.finding_id === findingId);
 
   return (
     <div className="risks-page">
@@ -2029,72 +2185,93 @@ function PrioritizedRisks({ scan }) {
 
       {!hasScan ? (
         <EmptyState text="No scan uploaded yet." />
-      ) : sorted.length === 0 ? (
+      ) : priorities.length === 0 ? (
         <EmptyState text="No findings have been verified yet. Verify findings from the Findings page to see them prioritized here." />
       ) : (
         <>
-          <div className="risks-summary">
-            <div className="summary-card">
-              <span>CRITICAL RISKS</span>
-              <strong>{criticalCount}</strong>
+          <section className="dashboard-stat-strip risks-stat-strip">
+            <div className="dashboard-kpi-card red">
+              <div className="dashboard-kpi-icon">
+                <ShieldAlert size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">CRITICAL</div>
+                <div className="dashboard-kpi-value">{criticalCount}</div>
+              </div>
             </div>
-            <div className="summary-card">
-              <span>HIGH RISKS</span>
-              <strong>{highCount}</strong>
+            <div className="dashboard-kpi-card orange">
+              <div className="dashboard-kpi-icon">
+                <AlertTriangle size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">HIGH</div>
+                <div className="dashboard-kpi-value">{highCount}</div>
+              </div>
             </div>
-            <div className="summary-card">
-              <span>TOTAL VERIFIED</span>
-              <strong>{sorted.length}</strong>
+            <div className="dashboard-kpi-card">
+              <div className="dashboard-kpi-icon">
+                <ShieldCheck size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">MEDIUM &amp; BELOW</div>
+                <div className="dashboard-kpi-value">{otherCount}</div>
+              </div>
             </div>
-          </div>
+            <div className="dashboard-kpi-card">
+              <div className="dashboard-kpi-icon">
+                <ListChecks size={16} />
+              </div>
+              <div className="dashboard-kpi-body">
+                <div className="dashboard-kpi-label">TOTAL VERIFIED</div>
+                <div className="dashboard-kpi-value">{priorities.length}</div>
+              </div>
+            </div>
+          </section>
 
-          <div className="risk-priority-list">
-            {sorted.map((p, index) => {
-              const finding = scan.findings.find(
-                (f) => f.finding_id === p.finding_id
-              );
-
-              return (
-                <div className="risk-priority-card" key={p.finding_id}>
-                  <div className="risk-priority-top">
-                    <span className="risk-priority-rank">
-                      #{String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="risk-priority-icon">
-                      <CategoryIcon
-                        category={finding?.vulnerability?.category}
-                        size={18}
-                      />
-                    </div>
-                    <div className="risk-priority-heading">
-                      <h3>
-                        {finding?.source?.original_name ||
-                          finding?.vulnerability?.category ||
-                          "Unknown finding"}
-                      </h3>
-                      <p>{finding?.target?.normalized_url}</p>
-                    </div>
-                    <span className={`priority ${priorityClassName(p.priority)}`}>
-                      {p.priority}
-                    </span>
-                  </div>
-
-                  <div className="risk-priority-meta">
-                    <div>
-                      <span>Verification status</span>
-                      <StatusBadge status={p.verification_status} />
-                    </div>
-                    <div>
-                      <span>Scanner severity</span>
-                      <strong>{p.scanner_severity}</strong>
-                    </div>
-                  </div>
-
-                  <p className="risk-priority-reason">{p.reason}</p>
+          {grouped.map((group) => {
+            const dominant = group.level === "CRITICAL" || group.level === "HIGH";
+            return (
+              <section
+                className={`risk-priority-group ${
+                  dominant ? "dominant" : "compact"
+                }`}
+                key={group.level}
+              >
+                <div className="risk-priority-group-title">
+                  <span className={`priority ${priorityClassName(group.level)}`}>
+                    {group.level}
+                  </span>
+                  <span className="risk-priority-group-count">
+                    {group.items.length} finding
+                    {group.items.length === 1 ? "" : "s"}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
+
+                <div
+                  className={
+                    dominant ? "risk-priority-list" : "risk-priority-compact-list"
+                  }
+                >
+                  {group.items.map((p, index) =>
+                    dominant ? (
+                      <RiskPriorityCard
+                        key={p.finding_id}
+                        priority={p}
+                        finding={findingFor(p.finding_id)}
+                        index={index}
+                      />
+                    ) : (
+                      <RiskPriorityRow
+                        key={p.finding_id}
+                        priority={p}
+                        finding={findingFor(p.finding_id)}
+                      />
+                    )
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </>
       )}
     </div>
@@ -2165,141 +2342,193 @@ function ReportsPage({ scan }) {
 
   return (
     <div className="reports-page">
-      <div className="page-description reports-header">
+      <div className="page-description">
         <div>
           <h2>Security Reports</h2>
           <p>Generate and review verified security scan reports.</p>
         </div>
-
-        {hasScan && (
-          <div className="report-actions">
-            <button
-              className="new-scan-button"
-              onClick={handleGenerateReport}
-              disabled={generating}
-            >
-              <FileText size={15} />
-              {generating
-                ? "Generating..."
-                : report
-                ? "Regenerate Report"
-                : "Generate Report"}
-            </button>
-            {report && (
-              <button className="view-button" onClick={handleDownload}>
-                <Download size={14} />
-                Download JSON
-              </button>
-            )}
-          </div>
-        )}
       </div>
-
-      {generateError && (
-        <ErrorBanner
-          message={`Could not generate report: ${generateError}`}
-        />
-      )}
 
       {!hasScan ? (
         <EmptyState text="No scan loaded. Upload a scan to generate a security report." />
-      ) : !report ? (
-        <EmptyState
-          text={
-            generating
-              ? "Generating report..."
-              : 'Click "Generate Report" to build a structured report for this scan.'
-          }
-        />
       ) : (
         <>
-          <section className="panel report-summary-panel">
-            <div className="panel-header">
-              <div>
-                <h3>Scan Summary</h3>
-                <p>Generated {new Date(report.generated_at).toLocaleString()}</p>
-              </div>
+          <section className="panel report-status-bar">
+            <div className="report-status-icon">
+              {report ? <FileCheck2 size={18} /> : <FileText size={18} />}
             </div>
-
-            <div className="evaluation-details-grid">
-              <div>
-                <span>Scan</span>
-                <strong>{report.filename}</strong>
-              </div>
-              <div>
-                <span>Scanner</span>
-                <strong>{scannerDisplayName(report.scanner)}</strong>
-              </div>
-              <div>
-                <span>Total findings</span>
-                <strong>{report.raw_finding_count}</strong>
-              </div>
-              <div>
-                <span>Verified findings</span>
-                <strong>{report.verified_count}</strong>
-              </div>
-              <div>
-                <span>Unique vulnerabilities</span>
-                <strong>{report.unique_vulnerability_count}</strong>
-              </div>
-              <div>
-                <span>Critical findings</span>
-                <strong>{criticalCount}</strong>
-              </div>
-              <div>
-                <span>High findings</span>
-                <strong>{highCount}</strong>
-              </div>
+            <div className="report-status-info">
+              <strong>
+                {report ? "Report generated" : "No report generated yet"}
+              </strong>
+              <span>
+                {report
+                  ? `Generated ${new Date(report.generated_at).toLocaleString()}`
+                  : "Generate a structured, point-in-time report for this scan."}
+              </span>
+            </div>
+            <div className="report-actions">
+              <button
+                className="new-scan-button"
+                onClick={handleGenerateReport}
+                disabled={generating}
+              >
+                <FileText size={15} />
+                {generating
+                  ? "Generating..."
+                  : report
+                  ? "Regenerate Report"
+                  : "Generate Report"}
+              </button>
+              {report && (
+                <button className="view-button" onClick={handleDownload}>
+                  <Download size={14} />
+                  Download JSON
+                </button>
+              )}
             </div>
           </section>
 
-          <section className="panel risks-panel">
-            <div className="panel-header">
-              <div>
-                <h3>Verified Security Report</h3>
-                <p>Every finding in this report, with its verification result</p>
-              </div>
-            </div>
+          {generateError && (
+            <ErrorBanner
+              message={`Could not generate report: ${generateError}`}
+            />
+          )}
 
-            {report.findings.length === 0 ? (
-              <EmptyState text="This scan produced no findings." />
-            ) : (
-              <div className="risk-table">
-                <div className="risk-header">
-                  <span>RANK</span>
-                  <span>VULNERABILITY</span>
-                  <span>STATUS</span>
-                  <span>SEVERITY</span>
-                  <span>PRIORITY</span>
-                  <span></span>
+          {!report ? (
+            <EmptyState
+              text={
+                generating
+                  ? "Generating report..."
+                  : 'Click "Generate Report" above to build a structured report for this scan.'
+              }
+            />
+          ) : (
+            <>
+              <section className="dashboard-stat-strip reports-stat-strip">
+                <div className="dashboard-kpi-card">
+                  <div className="dashboard-kpi-icon">
+                    <FileSearch size={16} />
+                  </div>
+                  <div className="dashboard-kpi-body">
+                    <div className="dashboard-kpi-label">TOTAL FINDINGS</div>
+                    <div className="dashboard-kpi-value">
+                      {report.raw_finding_count}
+                    </div>
+                  </div>
+                </div>
+                <div className="dashboard-kpi-card green">
+                  <div className="dashboard-kpi-icon">
+                    <ShieldCheck size={16} />
+                  </div>
+                  <div className="dashboard-kpi-body">
+                    <div className="dashboard-kpi-label">VERIFIED</div>
+                    <div className="dashboard-kpi-value">
+                      {report.verified_count}
+                    </div>
+                  </div>
+                </div>
+                <div className="dashboard-kpi-card red">
+                  <div className="dashboard-kpi-icon">
+                    <ShieldAlert size={16} />
+                  </div>
+                  <div className="dashboard-kpi-body">
+                    <div className="dashboard-kpi-label">CRITICAL</div>
+                    <div className="dashboard-kpi-value">{criticalCount}</div>
+                  </div>
+                </div>
+                <div className="dashboard-kpi-card orange">
+                  <div className="dashboard-kpi-icon">
+                    <AlertTriangle size={16} />
+                  </div>
+                  <div className="dashboard-kpi-body">
+                    <div className="dashboard-kpi-label">HIGH</div>
+                    <div className="dashboard-kpi-value">{highCount}</div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel report-summary-panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Scan Summary</h3>
+                  </div>
                 </div>
 
-                {report.findings.map((finding, index) => (
-                  <div className="risk-row" key={finding.finding_id}>
-                    <span className="rank">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="vulnerability">
-                      <strong>{finding.original_name || finding.category}</strong>
-                      <small>{finding.normalized_url}</small>
-                    </div>
-                    <StatusBadge status={finding.verification_status} />
-                    <span>{finding.scanner_severity}</span>
-                    {finding.priority ? (
-                      <span
-                        className={`priority ${priorityClassName(finding.priority)}`}
-                      >
-                        {finding.priority}
-                      </span>
-                    ) : (
-                      <span className="priority unverified">NOT VERIFIED</span>
-                    )}
-                    <span></span>
+                <div className="report-summary-lines">
+                  <div className="metric-line">
+                    <span>Scan</span>
+                    <strong>{report.filename}</strong>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
+                  <div className="metric-line">
+                    <span>Scanner</span>
+                    <strong>{scannerDisplayName(report.scanner)}</strong>
+                  </div>
+                  <div className="metric-line">
+                    <span>Unique vulnerabilities</span>
+                    <strong>{report.unique_vulnerability_count}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="panel risks-panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Verified Security Report</h3>
+                    <p>
+                      Every finding in this report, with its verification
+                      result
+                    </p>
+                  </div>
+                </div>
+
+                {report.findings.length === 0 ? (
+                  <EmptyState text="This scan produced no findings." />
+                ) : (
+                  <div className="risk-table">
+                    <div className="risk-header">
+                      <span>RANK</span>
+                      <span>VULNERABILITY</span>
+                      <span>STATUS</span>
+                      <span>SEVERITY</span>
+                      <span>PRIORITY</span>
+                      <span></span>
+                    </div>
+
+                    {report.findings.map((finding, index) => (
+                      <div className="risk-row" key={finding.finding_id}>
+                        <span className="rank">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <div className="vulnerability">
+                          <strong>
+                            {finding.original_name || finding.category}
+                          </strong>
+                          <small>{finding.normalized_url}</small>
+                        </div>
+                        <StatusBadge status={finding.verification_status} />
+                        <span>{finding.scanner_severity}</span>
+                        {finding.priority ? (
+                          <span
+                            className={`priority ${priorityClassName(
+                              finding.priority
+                            )}`}
+                          >
+                            {finding.priority}
+                          </span>
+                        ) : (
+                          <span className="priority unverified">
+                            NOT VERIFIED
+                          </span>
+                        )}
+                        <span></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </>
       )}
     </div>
@@ -2398,72 +2627,40 @@ function MetricsPage({ scan }) {
         </div>
       ) : (
         <>
-          <section className="metrics-kpi-grid">
+          <section className="dashboard-stat-strip metrics-stat-strip">
             <MetricKpiCard
               icon={Target}
-              accent="blue"
-              label="Precision"
+              accent=""
+              label="PRECISION"
               value={formatMetricPercent(metrics.precision)}
-              description="Of predicted positives, how many were correct"
+              description="Of predicted positives, correct"
             />
             <MetricKpiCard
               icon={CheckCircle2}
               accent="green"
-              label="Recall"
+              label="RECALL"
               value={formatMetricPercent(metrics.recall)}
-              description="Of actual positives, how many were detected"
+              description="Of actual positives, detected"
             />
             <MetricKpiCard
               icon={Activity}
               accent="purple"
-              label="F1 Score"
+              label="F1 SCORE"
               value={formatMetricPercent(metrics.f1)}
-              description="Balance between precision and recall"
+              description="Precision/recall balance"
             />
             <MetricKpiCard
               icon={ListChecks}
               accent="orange"
-              label="Evaluated Findings"
+              label="EVALUATED"
               value={String(metrics.evaluated_count)}
-              description="Scored against ground truth"
+              description="Scored vs. ground truth"
             />
           </section>
 
           <section className="metrics-analysis-grid">
             <ConfusionMatrixPanel metrics={metrics} />
-            <EvaluationCoveragePanel metrics={metrics} />
-          </section>
-
-          <section className="panel metrics-panel evaluation-details">
-            <div className="panel-header">
-              <div>
-                <h3>Evaluation Details</h3>
-                <p>Context for the numbers above</p>
-              </div>
-            </div>
-
-            <div className="evaluation-details-grid">
-              <div>
-                <span>Scan</span>
-                <strong>{scan.scanMeta.filename}</strong>
-              </div>
-              <div>
-                <span>Ground truth labels</span>
-                <strong>{metrics.ground_truth_count}</strong>
-              </div>
-              <div>
-                <span>Evaluated findings</span>
-                <strong>{metrics.evaluated_count}</strong>
-              </div>
-              <div>
-                <span>Unverified labels</span>
-                <strong>{metrics.unverified_ground_truth_count}</strong>
-              </div>
-              <div>
-                <span>Inconclusive</span>
-                <strong>{metrics.excluded_inconclusive_count}</strong>
-              </div>
-            </div>
+            <EvaluationCoveragePanel metrics={metrics} scan={scan} />
           </section>
         </>
       )}
@@ -2473,17 +2670,17 @@ function MetricsPage({ scan }) {
 
 function MetricKpiCard({ icon: Icon, accent, label, value, description }) {
   return (
-    <div className={`metrics-kpi-card ${accent}`}>
-      <div className="metrics-kpi-card-top">
-        <div className="metrics-kpi-label">{label}</div>
-        {Icon && (
-          <div className="metrics-kpi-icon">
-            <Icon size={16} />
-          </div>
-        )}
+    <div className={`dashboard-kpi-card ${accent}`}>
+      {Icon && (
+        <div className="dashboard-kpi-icon">
+          <Icon size={16} />
+        </div>
+      )}
+      <div className="dashboard-kpi-body">
+        <div className="dashboard-kpi-label">{label}</div>
+        <div className="dashboard-kpi-value">{value}</div>
+        <div className="dashboard-kpi-subtitle">{description}</div>
       </div>
-      <div className="metrics-kpi-value">{value}</div>
-      <div className="metrics-kpi-description">{description}</div>
     </div>
   );
 }
@@ -2551,13 +2748,13 @@ function ConfusionMatrixPanel({ metrics }) {
   );
 }
 
-function EvaluationCoveragePanel({ metrics }) {
-  const coverage =
+function EvaluationCoveragePanel({ metrics, scan }) {
+  const coveragePercent =
     metrics.ground_truth_count > 0
-      ? `${Math.round(
+      ? Math.round(
           (metrics.evaluated_count / metrics.ground_truth_count) * 100
-        )}%`
-      : "N/A";
+        )
+      : null;
 
   return (
     <div className="panel metrics-panel">
@@ -2568,26 +2765,41 @@ function EvaluationCoveragePanel({ metrics }) {
         </div>
       </div>
 
-      <div className="metric-line">
-        <span>Ground truth labels</span>
-        <strong>{metrics.ground_truth_count}</strong>
-      </div>
-      <div className="metric-line">
-        <span>Evaluated</span>
-        <strong>{metrics.evaluated_count}</strong>
-      </div>
-      <div className="metric-line">
-        <span>Unverified</span>
-        <strong>{metrics.unverified_ground_truth_count}</strong>
-      </div>
-      <div className="metric-line">
-        <span>Inconclusive</span>
-        <strong>{metrics.excluded_inconclusive_count}</strong>
-      </div>
+      <div className="coverage-ring-row">
+        <div
+          className="coverage-ring"
+          style={{
+            "--coverage-pct": `${coveragePercent ?? 0}%`,
+          }}
+        >
+          <div className="coverage-ring-inner">
+            <strong>{coveragePercent !== null ? `${coveragePercent}%` : "N/A"}</strong>
+            <span>covered</span>
+          </div>
+        </div>
 
-      <div className="evaluation-coverage-total">
-        <span>Evaluation coverage</span>
-        <strong>{coverage}</strong>
+        <div className="coverage-ring-lines">
+          <div className="metric-line">
+            <span>Scan</span>
+            <strong>{scan.scanMeta.filename}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Ground truth labels</span>
+            <strong>{metrics.ground_truth_count}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Evaluated</span>
+            <strong>{metrics.evaluated_count}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Unverified</span>
+            <strong>{metrics.unverified_ground_truth_count}</strong>
+          </div>
+          <div className="metric-line">
+            <span>Inconclusive</span>
+            <strong>{metrics.excluded_inconclusive_count}</strong>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2627,6 +2839,8 @@ function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const isDefaultUrl = apiUrl === getDefaultApiBaseUrl();
+
   return (
     <div className="settings-page">
       <div className="page-description">
@@ -2636,68 +2850,95 @@ function SettingsPage() {
         </div>
       </div>
 
-      <div className="panel settings-panel">
-        <div className="panel-header">
-          <div>
-            <h3>Backend API URL</h3>
-            <p>
-              Where the frontend sends every request. Persisted in this
-              browser only.
-            </p>
+      <div className="settings-grid">
+        <section className="panel settings-primary-panel">
+          <div className="settings-primary-icon">
+            <Settings size={18} />
           </div>
-        </div>
-
-        <form className="settings-form" onSubmit={handleSave}>
-          <div className="form-field">
-            <label>API base URL</label>
-            <input
-              type="text"
-              value={apiUrl}
-              onChange={(e) => setApiUrlValue(e.target.value)}
-              placeholder={getDefaultApiBaseUrl()}
-            />
-          </div>
-
-          <div className="settings-actions">
-            <button type="submit" className="new-scan-button">
-              Save
-            </button>
-            <button
-              type="button"
-              className="view-button"
-              onClick={handleReset}
+          <div className="panel-header">
+            <div>
+              <h3>Backend API URL</h3>
+              <p>
+                Where the frontend sends every request. Persisted in this
+                browser only -- takes effect on the next request, no
+                rebuild required.
+              </p>
+            </div>
+            <span
+              className={`settings-connection-pill ${
+                isDefaultUrl ? "" : "custom"
+              }`}
             >
-              Reset to default
-            </button>
-            {saved && <span className="settings-saved">Saved.</span>}
+              {isDefaultUrl ? "Default" : "Custom"}
+            </span>
           </div>
-        </form>
-      </div>
 
-      <div className="panel settings-panel">
-        <div className="panel-header">
-          <div>
-            <h3>Application Information</h3>
-            <p>What this build of VulnVerify actually supports.</p>
-          </div>
-        </div>
+          <form className="settings-form" onSubmit={handleSave}>
+            <div className="form-field">
+              <label>API base URL</label>
+              <input
+                type="text"
+                value={apiUrl}
+                onChange={(e) => setApiUrlValue(e.target.value)}
+                placeholder={getDefaultApiBaseUrl()}
+              />
+            </div>
 
-        <div className="metric-line">
-          <span>Supported scanner inputs</span>
-          <strong>OWASP ZAP (JSON), Burp Suite (XML)</strong>
-        </div>
-        <div className="metric-line">
-          <span>Verification families</span>
-          <strong>CSRF, SQLi (TIME_BASED / ERROR_BASED), Reflected XSS</strong>
-        </div>
-        <div className="metric-line">
-          <span>Verification classifications</span>
-          <strong>TRUE_POSITIVE, FALSE_POSITIVE, INCONCLUSIVE</strong>
-        </div>
-        <div className="metric-line">
-          <span>Persistence</span>
-          <strong>SQLite (scans survive a backend restart)</strong>
-        </div>
+            <div className="settings-actions">
+              <button type="submit" className="new-scan-button">
+                Save
+              </button>
+              <button
+                type="button"
+                className="view-button"
+                onClick={handleReset}
+              >
+                Reset to default
+              </button>
+              {saved && <span className="settings-saved">Saved.</span>}
+            </div>
+          </form>
+        </section>
+
+        <aside className="settings-side-col">
+          <section className="panel settings-info-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Verification capabilities</h3>
+              </div>
+            </div>
+            <dl className="settings-fact-list">
+              <div>
+                <dt>Scanner inputs</dt>
+                <dd>OWASP ZAP (JSON), Burp Suite (XML)</dd>
+              </div>
+              <div>
+                <dt>Verification families</dt>
+                <dd>CSRF, SQLi (TIME_BASED / ERROR_BASED), Reflected XSS</dd>
+              </div>
+              <div>
+                <dt>Classifications</dt>
+                <dd>TRUE_POSITIVE, FALSE_POSITIVE, INCONCLUSIVE</dd>
+              </div>
+              <div>
+                <dt>Persistence</dt>
+                <dd>SQLite -- scans survive a backend restart</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="panel settings-info-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Need help?</h3>
+              </div>
+            </div>
+            <p className="settings-help-note">
+              See the Help page for the full verification workflow and
+              troubleshooting steps.
+            </p>
+          </section>
+        </aside>
       </div>
     </div>
   );
@@ -2775,90 +3016,99 @@ function HelpPage() {
         </div>
       </div>
 
-      <div className="panel help-panel">
-        <div className="help-panel-title">
-          <Rocket size={16} />
-          <h3>Workflow</h3>
-        </div>
-        <ol className="help-steps">
-          {HELP_WORKFLOW_STEPS.map((step) => (
-            <li key={step.title}>
-              <strong>{step.title}</strong> — {step.text}
-            </li>
-          ))}
-        </ol>
-      </div>
+      <div className="help-grid">
+        <section className="panel help-panel help-timeline-panel">
+          <div className="help-panel-title">
+            <Rocket size={16} />
+            <h3>Workflow</h3>
+          </div>
+          <ol className="help-timeline">
+            {HELP_WORKFLOW_STEPS.map((step, index) => (
+              <li key={step.title}>
+                <span className="help-timeline-marker">{index + 1}</span>
+                <div className="help-timeline-content">
+                  <strong>{step.title}</strong>
+                  <p>{step.text}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-      <div className="panel help-panel">
-        <div className="help-panel-title">
-          <ShieldCheck size={16} />
-          <h3>Verification types</h3>
-        </div>
+        <div className="help-side-col">
+          <section className="panel help-panel">
+            <div className="help-panel-title">
+              <ShieldCheck size={16} />
+              <h3>Verification types</h3>
+            </div>
 
-        <div className="help-verification-grid">
-          {HELP_VERIFICATION_TYPES.map(({ icon: Icon, title, text }) => (
-            <div className="help-verification-type" key={title}>
+            <div className="help-verification-grid">
+              {HELP_VERIFICATION_TYPES.map(({ icon: Icon, title, text }) => (
+                <div className="help-verification-type" key={title}>
+                  <div className="help-verification-icon">
+                    <Icon size={16} />
+                  </div>
+                  <div>
+                    <h4>{title}</h4>
+                    <p>{text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel help-panel">
+            <div className="help-panel-title">
+              <LifeBuoy size={16} />
+              <h3>Troubleshooting</h3>
+            </div>
+
+            <div className="help-verification-type">
               <div className="help-verification-icon">
-                <Icon size={16} />
+                <FileSearch size={16} />
               </div>
               <div>
-                <h4>{title}</h4>
-                <p>{text}</p>
+                <h4>Backend won't connect</h4>
+                <p>
+                  Check the API base URL on the Settings page. The
+                  Dashboard and other data pages show a banner with the
+                  exact connection error when the backend can't be
+                  reached.
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="panel help-panel">
-        <div className="help-panel-title">
-          <LifeBuoy size={16} />
-          <h3>Troubleshooting</h3>
-        </div>
+            <div className="help-verification-type">
+              <div className="help-verification-icon">
+                <Loader2 size={16} />
+              </div>
+              <div>
+                <h4>Scan or findings stuck loading</h4>
+                <p>
+                  A scan that produced zero findings, or a very large
+                  report, can take a moment. If loading never finishes,
+                  check the browser console and the backend logs for the
+                  underlying error.
+                </p>
+              </div>
+            </div>
 
-        <div className="help-verification-type">
-          <div className="help-verification-icon">
-            <FileSearch size={16} />
-          </div>
-          <div>
-            <h4>Backend won't connect</h4>
-            <p>
-              Check the API base URL on the Settings page. The Dashboard
-              and other data pages show a banner with the exact
-              connection error when the backend can't be reached.
-            </p>
-          </div>
-        </div>
-
-        <div className="help-verification-type">
-          <div className="help-verification-icon">
-            <Loader2 size={16} />
-          </div>
-          <div>
-            <h4>Scan or findings stuck loading</h4>
-            <p>
-              A scan that produced zero findings, or a very large report,
-              can take a moment. If loading never finishes, check the
-              browser console and the backend logs for the underlying
-              error.
-            </p>
-          </div>
-        </div>
-
-        <div className="help-verification-type">
-          <div className="help-verification-icon">
-            <Clock3 size={16} />
-          </div>
-          <div>
-            <h4>Verification stuck on INCONCLUSIVE</h4>
-            <p>
-              INCONCLUSIVE means the replay could not confirm or rule
-              out the vulnerability with the given input (e.g. an
-              unreachable target, or a baseline value that didn't
-              distinguish injected from normal behavior) — it is a
-              real, honest result, not an error.
-            </p>
-          </div>
+            <div className="help-verification-type">
+              <div className="help-verification-icon">
+                <Clock3 size={16} />
+              </div>
+              <div>
+                <h4>Verification stuck on INCONCLUSIVE</h4>
+                <p>
+                  INCONCLUSIVE means the replay could not confirm or rule
+                  out the vulnerability with the given input (e.g. an
+                  unreachable target, or a baseline value that didn't
+                  distinguish injected from normal behavior) — it is a
+                  real, honest result, not an error.
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
